@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tia-tag-exporter"
+version = "0.1.0"
+description = "Exportiert PLC-, HMI- und DB-Tags aus TIA-Portal-Projekten via Openness API nach Excel"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Thomas Schlangen" }]
+
+dependencies = [
+    "pythonnet>=3.0.3",
+    "openpyxl>=3.1",
+    "loguru>=0.7",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.scripts]
+tia-tag-exporter = "tia_tag_exporter.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tia_tag_exporter"]
