@@ -27,7 +27,8 @@ project_path = "C:/Users/thomas/Documents/TIA-Projekte/MeinProjekt.ap21"
 dll_path = "C:/Program Files/Siemens/Automation/Portal V21/PublicAPI/V21/Siemens.Engineering.dll"
 
 [export]
-output_path = "C:/Users/thomas/Desktop/tag-export.xlsx"
+# Relativ zum Arbeitsverzeichnis; landet standardmäßig im mitgelieferten output/-Ordner.
+output_path = "output/tag-export.xlsx"
 include_plc_tags = true
 include_hmi_tags = true
 include_db_variables = true
