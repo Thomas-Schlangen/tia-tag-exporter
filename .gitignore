@@ -21,11 +21,10 @@ config.toml
 export.log
 *.xlsx
 !config.example.toml
-/output/
 
-# Output-Ordner selbst wird versioniert, sein Inhalt nicht
-Output/*
-!Output/.gitkeep
+# output-Ordner selbst wird versioniert, sein Inhalt nicht
+output/*
+!output/.gitkeep
 
 # IDE
 .vscode/
