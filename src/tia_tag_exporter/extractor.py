@@ -51,21 +51,31 @@ class TagExtractor:
     def extract_hmi_tags(self, hmi: Any) -> list[HmiTagRecord]:
         """Extrahiert alle HMI-Tags aus allen Tag-Tabellen eines HMI-Geräts.
 
-        Unterstützt sowohl WinCC Advanced/Comfort (``HmiTarget``) als auch
-        WinCC Unified (``HmiUnifiedTarget``) — beide stellen ``TagTables`` bereit,
-        die Tag-Objekte unterscheiden sich aber in wenigen Attributnamen.
+        WinCC Advanced/Comfort (``Siemens.Engineering.Hmi.HmiTarget``) und WinCC
+        Unified (``Siemens.Engineering.HmiUnified.HmiSoftware``) haben in V21
+        unterschiedliche Objektmodelle:
+
+        - Advanced/Comfort: Tag-Tabellen hängen unter ``hmi.TagFolder`` (mit
+          rekursiven Unterordnern über ``.Folders``), die Tag-Objekte
+          (``Siemens.Engineering.Hmi.Tag.Tag``) besitzen kaum stark typisierte
+          Properties — Datentyp/Verbindung/Kommentar müssen über
+          ``GetAttribute`` gelesen werden.
+        - Unified: ``hmi.TagTables`` liefert die Tag-Tabellen direkt als flache
+          Liste, die Tag-Objekte (``HmiUnified.HmiTags.HmiTag``) haben echte
+          Properties (``DataType``, ``Connection``, ``Comment``).
 
         Args:
-            hmi: Ein HMI-Target-Objekt (Advanced/Comfort oder Unified).
+            hmi: Ein HMI-Software-Objekt (Advanced/Comfort ``HmiTarget`` oder
+                Unified ``HmiSoftware``).
 
         Returns:
             Liste von Dicts mit Name, Datentyp, Verbindung, Kommentar.
         """
         records: list[HmiTagRecord] = []
-        tag_tables = getattr(hmi, "TagTables", None)
+        tag_tables = list(self._iter_hmi_tag_tables(hmi))
 
-        if tag_tables is None:
-            logger.warning("HMI-Objekt '{}' besitzt keine TagTables", getattr(hmi, "Name", "?"))
+        if not tag_tables:
+            logger.warning("HMI-Objekt '{}' besitzt keine Tag-Tabellen", getattr(hmi, "Name", "?"))
             return records
 
         for table in tag_tables:
@@ -77,7 +87,7 @@ class TagExtractor:
                             "Name": tag.Name,
                             "Datentyp": self._read_hmi_data_type(tag),
                             "Verbindung": self._read_hmi_connection(tag),
-                            "Kommentar": self._read_comment(getattr(tag, "Comment", None)),
+                            "Kommentar": self._read_comment(self._get_value(tag, "Comment")),
                         }
                     )
                 except Exception as exc:  # noqa: BLE001
@@ -94,7 +104,8 @@ class TagExtractor:
         """Extrahiert alle Variablen aus einem Datenbaustein (rekursiv über Structs).
 
         Args:
-            db: Ein ``PlcBlock``-Objekt vom Typ Datenbaustein (mit ``Interface``).
+            db: Ein ``PlcBlock``-Objekt vom Typ Datenbaustein
+                (``Siemens.Engineering.SW.Blocks.DataBlock``, mit ``Interface``).
 
         Returns:
             Liste von Dicts mit Name, Datentyp, Offset, Kommentar, Initialwert.
@@ -118,27 +129,87 @@ class TagExtractor:
                 records.append(
                     {
                         "Name": full_name,
-                        "Datentyp": member.DataTypeName,
-                        "Offset": getattr(member, "Offset", None),
-                        "Kommentar": self._read_comment(getattr(member, "Comment", None)),
-                        "Initialwert": getattr(member, "StartValue", None),
+                        "Datentyp": self._get_value(member, "DataTypeName"),
+                        "Offset": self._get_value(member, "Offset"),
+                        "Kommentar": self._read_comment(self._get_value(member, "Comment")),
+                        "Initialwert": self._get_value(member, "StartValue"),
                     }
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("DB-Variable '{}' konnte nicht gelesen werden: {}", full_name, exc)
                 continue
 
-            nested = getattr(member, "Members", None)
+            nested = self._get_nested_members(member)
             if nested is not None and len(nested) > 0:
                 self._collect_members(nested, prefix=f"{full_name}.", records=records)
 
     @staticmethod
+    def _get_nested_members(member: Any) -> Any:
+        """Liest die Unter-Elemente eines Struct-Members.
+
+        ``Member.Members`` ist keine normale .NET-Property, sondern eine
+        explizite Interface-Implementierung (``IEngineeringObject.GetComposition``)
+        — daher der Zugriff über ``GetComposition("Members")`` statt ``getattr``.
+        """
+        get_composition = getattr(member, "GetComposition", None)
+        if get_composition is None:
+            return None
+        try:
+            return get_composition("Members")
+        except Exception:  # noqa: BLE001 — z. B. Members ohne Unterstruktur
+            return None
+
+    @staticmethod
     def _iter_tag_tables(tag_table_group: Any):
-        """Iteriert rekursiv über alle Tag-Tabellen inkl. Unterordner."""
+        """Iteriert rekursiv über alle PLC-Tag-Tabellen inkl. Unterordner."""
         for table in tag_table_group.TagTables:
             yield table
         for subgroup in getattr(tag_table_group, "Groups", []):
             yield from TagExtractor._iter_tag_tables(subgroup)
+
+    @staticmethod
+    def _iter_hmi_tag_tables(hmi: Any):
+        """Iteriert über alle HMI-Tag-Tabellen, unabhängig vom HMI-Typ.
+
+        Advanced/Comfort organisiert Tag-Tabellen rekursiv unter ``TagFolder``
+        (``.TagTables`` + ``.Folders``); Unified stellt sie direkt und flach
+        über ``TagTables`` am Software-Objekt bereit.
+        """
+        tag_folder = getattr(hmi, "TagFolder", None)
+        if tag_folder is not None:
+            yield from TagExtractor._iter_hmi_tag_folder(tag_folder)
+            return
+
+        for table in getattr(hmi, "TagTables", []) or []:
+            yield table
+
+    @staticmethod
+    def _iter_hmi_tag_folder(tag_folder: Any):
+        for table in getattr(tag_folder, "TagTables", []) or []:
+            yield table
+        for subfolder in getattr(tag_folder, "Folders", []) or []:
+            yield from TagExtractor._iter_hmi_tag_folder(subfolder)
+
+    @staticmethod
+    def _get_value(obj: Any, name: str) -> Any:
+        """Liest ein Attribut robust: zuerst als .NET-Property, sonst per ``GetAttribute``.
+
+        Mehrere Openness-Objekttypen (z. B. DB-Interface-``Member`` oder
+        WinCC-Advanced/Comfort-``Tag``) exposen Konfigurationswerte wie
+        Datentyp, Offset oder Kommentar nicht als stark typisierte Properties,
+        sondern nur über die generische ``GetAttribute``-Methode.
+        """
+        value = getattr(obj, name, None)
+        if value is not None:
+            return value
+
+        get_attribute = getattr(obj, "GetAttribute", None)
+        if get_attribute is None:
+            return None
+        try:
+            return get_attribute(name)
+        except Exception:  # noqa: BLE001 — Attribut existiert für dieses Objekt nicht
+            return None
 
     @staticmethod
     def _read_comment(comment: Any) -> str:
@@ -169,13 +240,13 @@ class TagExtractor:
             return "nur lesend"
         return "voller Zugriff"
 
-    @staticmethod
-    def _read_hmi_data_type(tag: Any) -> str:
-        return getattr(tag, "DataTypeName", None) or getattr(tag, "DataType", "")
+    @classmethod
+    def _read_hmi_data_type(cls, tag: Any) -> str:
+        return cls._get_value(tag, "DataType") or ""
 
-    @staticmethod
-    def _read_hmi_connection(tag: Any) -> str:
-        connection = getattr(tag, "Connection", None)
+    @classmethod
+    def _read_hmi_connection(cls, tag: Any) -> str:
+        connection = cls._get_value(tag, "Connection")
         if connection is None:
             return ""
         return getattr(connection, "Name", str(connection))

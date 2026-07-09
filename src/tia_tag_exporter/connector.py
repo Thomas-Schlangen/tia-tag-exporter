@@ -13,14 +13,30 @@ class TiaConnectionError(RuntimeError):
     """Wird ausgelöst, wenn die Verbindung zu TIA Portal fehlschlägt."""
 
 
+# Ab TIA Portal V21 ist die Openness API nicht mehr eine einzelne
+# "Siemens.Engineering.dll", sondern in mehrere Assemblies im selben
+# net48-Ordner aufgeteilt. "Base" enthält TiaPortal/TiaPortalMode und muss
+# zuerst geladen werden, die übrigen liefern PLC- (Step7) bzw. HMI-Zugriff
+# (WinCC = Advanced/Comfort, WinCCUnified = WinCC Unified).
+_REQUIRED_ASSEMBLIES = (
+    "Siemens.Engineering.Base",
+    "Siemens.Engineering.Step7",
+    "Siemens.Engineering.WinCC",
+    "Siemens.Engineering.WinCCUnified",
+)
+
+
 class TiaConnector:
     """Kapselt den Zugriff auf die TIA Portal Openness API.
 
-    Lädt die Openness-.NET-Assembly per ``pythonnet`` und öffnet ein
+    Lädt die Openness-.NET-Assemblies per ``pythonnet`` und öffnet ein
     TIA-Portal-Projekt im Headless-Modus (``TiaPortalMode.WithoutUserInterface``).
     """
 
     def __init__(self, dll_path: str | Path) -> None:
+        """``dll_path`` zeigt auf ``Siemens.Engineering.Base.dll``; die übrigen
+        benötigten Assemblies (Step7, WinCC, WinCCUnified) werden aus demselben
+        Ordner nachgeladen."""
         self.dll_path = Path(dll_path)
         self._tia_portal = None
         self._project = None
@@ -32,15 +48,26 @@ class TiaConnector:
 
         if not self.dll_path.is_file():
             raise TiaConnectionError(
-                f"Siemens.Engineering.dll wurde unter '{self.dll_path}' nicht gefunden."
+                f"Siemens.Engineering.Base.dll wurde unter '{self.dll_path}' nicht gefunden."
             )
 
         import clr  # pythonnet
 
-        sys.path.append(str(self.dll_path.parent))
-        clr.AddReference(str(self.dll_path.stem))
+        assembly_dir = self.dll_path.parent
+        sys.path.append(str(assembly_dir))
+
+        for assembly_name in _REQUIRED_ASSEMBLIES:
+            assembly_path = assembly_dir / f"{assembly_name}.dll"
+            if not assembly_path.is_file():
+                logger.warning(
+                    "Optionale Openness-Assembly nicht gefunden, wird übersprungen: {}",
+                    assembly_path,
+                )
+                continue
+            clr.AddReference(assembly_name)
+            logger.debug("Assembly geladen: {}", assembly_path)
+
         self._clr_loaded = True
-        logger.debug("Siemens.Engineering.dll geladen von {}", self.dll_path)
 
     def connect(self, project_path: str | Path):
         """Öffnet ein TIA-Portal-Projekt und gibt das Projekt-Objekt zurück."""

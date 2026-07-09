@@ -1,6 +1,9 @@
 [tia]
 project_path = "C:/Users/thomas/Documents/TIA-Projekte/MeinProjekt.ap21"
-dll_path = "C:/Program Files/Siemens/Automation/Portal V21/PublicAPI/V21/Siemens.Engineering.dll"
+# Zeigt auf Siemens.Engineering.Base.dll. Ab V21 ist die Openness API in mehrere
+# Assemblies im selben Ordner aufgeteilt (Step7, WinCC, WinCCUnified) —
+# TiaConnector lädt diese automatisch aus demselben Verzeichnis nach.
+dll_path = "C:/Program Files/Siemens/Automation/Portal V21/PublicAPI/V21/net48/Siemens.Engineering.Base.dll"
 
 [export]
 output_path = "C:/Users/thomas/Desktop/tag-export.xlsx"

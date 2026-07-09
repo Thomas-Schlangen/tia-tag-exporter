@@ -62,28 +62,38 @@ def _find_plc_software_list(project: Any) -> list[Any]:
 
 
 def _find_hmi_targets(project: Any) -> list[Any]:
-    """Traversiert alle Geräte des Projekts und sammelt HMI-Software-Container (Advanced/Comfort/Unified)."""
+    """Traversiert alle Geräte des Projekts und sammelt HMI-Software-Container.
+
+    WinCC Advanced/Comfort und WinCC Unified verwenden unterschiedliche
+    Software-Klassen (``Siemens.Engineering.Hmi.HmiTarget`` bzw.
+    ``Siemens.Engineering.HmiUnified.HmiSoftware``) — beide werden erfasst.
+    """
     from Siemens.Engineering.HW.Features import SoftwareContainer
     from Siemens.Engineering.Hmi import HmiTarget
+    from Siemens.Engineering.HmiUnified import HmiSoftware
 
     result: list[Any] = []
     for device in project.Devices:
         for device_item in device.DeviceItems:
             container = device_item.GetService[SoftwareContainer]()
-            if container is not None and isinstance(container.Software, HmiTarget):
+            if container is not None and isinstance(container.Software, (HmiTarget, HmiSoftware)):
                 result.append(container.Software)
     return result
 
 
 def _find_data_blocks(plc_software: Any) -> list[Any]:
-    """Sammelt rekursiv alle Datenbausteine (Data Blocks) einer PLC-Software."""
-    from Siemens.Engineering.SW.Blocks import DB
+    """Sammelt rekursiv alle Datenbausteine (Data Blocks) einer PLC-Software.
+
+    Openness kennt keine Klasse namens ``DB`` — Datenbausteine (Global-DB,
+    Instanz-DB, Array-DB) leiten alle von ``Siemens.Engineering.SW.Blocks.DataBlock`` ab.
+    """
+    from Siemens.Engineering.SW.Blocks import DataBlock
 
     result: list[Any] = []
 
     def _walk(block_group: Any) -> None:
         for block in block_group.Blocks:
-            if isinstance(block, DB):
+            if isinstance(block, DataBlock):
                 result.append(block)
         for subgroup in getattr(block_group, "Groups", []):
             _walk(subgroup)
