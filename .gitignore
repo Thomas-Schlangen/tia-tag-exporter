@@ -23,6 +23,10 @@ export.log
 !config.example.toml
 /output/
 
+# Output-Ordner selbst wird versioniert, sein Inhalt nicht
+Output/*
+!Output/.gitkeep
+
 # IDE
 .vscode/
 .idea/
