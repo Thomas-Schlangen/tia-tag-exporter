@@ -21,6 +21,7 @@ config.toml
 export.log
 *.xlsx
 !config.example.toml
+/output/
 
 # IDE
 .vscode/
