@@ -82,6 +82,11 @@ class TagExtractor:
             tags = getattr(table, "Tags", [])
             for tag in tags:
                 try:
+                    # Bei WinCC Advanced/Comfort (Siemens.Engineering.Hmi.Tag.Tag)
+                    # exponiert Openness ausschließlich "Name" — Datentyp/Verbindung/
+                    # Kommentar bleiben dort leer. Live verifiziert (siehe
+                    # docs/setup-notes.md), kein Bug. Bei WinCC Unified sind es
+                    # echte Properties und werden korrekt gefüllt.
                     records.append(
                         {
                             "Name": tag.Name,
@@ -126,6 +131,10 @@ class TagExtractor:
         for member in members:
             full_name = f"{prefix}{member.Name}"
             try:
+                # Offset/Comment bleiben leer, wenn der Baustein "Optimized" ist
+                # (TIA-Standard seit vielen Versionen) — Openness kennt dafür keinen
+                # festen Byte-Offset und keinen Member-Kommentar. Live gegen ein
+                # reales Projekt verifiziert (siehe docs/setup-notes.md), kein Bug.
                 records.append(
                     {
                         "Name": full_name,

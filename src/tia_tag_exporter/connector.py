@@ -78,13 +78,14 @@ class TiaConnector:
         self._load_dll()
 
         from Siemens.Engineering import TiaPortal, TiaPortalMode  # noqa: E402
+        from System.IO import FileInfo  # noqa: E402
 
         logger.info("Öffne TIA Portal (Headless) für Projekt: {}", project_path)
         self._tia_portal = TiaPortal(TiaPortalMode.WithoutUserInterface)
 
         try:
             project_composition = self._tia_portal.Projects
-            self._project = project_composition.Open(str(project_path))
+            self._project = project_composition.Open(FileInfo(str(project_path)))
         except Exception as exc:  # noqa: BLE001 — Openness wirft .NET-Exceptions
             self.disconnect()
             raise TiaConnectionError(f"Projekt konnte nicht geöffnet werden: {exc}") from exc

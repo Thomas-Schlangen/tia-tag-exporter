@@ -95,9 +95,27 @@ tia-tag-exporter/
 
 ## Bekannte Einschränkungen
 
-- WinCC Unified und WinCC Advanced/Comfort unterscheiden sich in ihrem
-  Openness-Objektmodell in Details (z. B. Attributnamen für Datentyp und
-  Verbindung); `extractor.py` behandelt beide über defensiven Attributzugriff,
-  wurde aber noch nicht gegen ein reales Unified-Projekt getestet.
+Live gegen ein reales V21-Projekt getestet (435 PLC-Tags, ~104.000
+DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
+
+- **DB-Variablen: `Offset` und `Kommentar` bleiben bei optimierten
+  Datenbausteinen (Optimized Block Access) leer.** Das ist keine
+  Extraktionslücke, sondern eine harte Grenze der Openness API: Optimierte
+  DBs (in modernen TIA-Projekten der Regelfall) haben keinen festen
+  Byte-Offset, und einzelne Interface-Member exponieren dort keinen
+  Kommentar. Nur bei "Standard"-Zugriff (nicht optimiert) sind diese Werte
+  überhaupt vorhanden.
+- **HMI-Tags bei WinCC Advanced/Comfort: nur `Name` ist über Openness
+  abrufbar.** `Datentyp`, `Verbindung` und `Kommentar` bleiben für diesen
+  HMI-Typ grundsätzlich leer — die Openness API stellt diese Werte für
+  klassische Comfort-/Advanced-Tags schlicht nicht bereit (weder als Property
+  noch über `GetAttribute`).
+- **WinCC Unified** ist bisher nur anhand der .NET-Typsignaturen verifiziert
+  (per Reflection: `HmiUnified.HmiTags.HmiTag` hat echte `DataType`-,
+  `Connection`- und `Comment`-Properties), aber noch nicht live gegen ein
+  Projekt mit tatsächlichem Unified-Gerät getestet.
 - Die Openness-DLL ist versionsgebunden — ein mit V21 angelegtes Projekt lässt
   sich nicht ohne Weiteres mit einer V19-DLL öffnen (siehe `docs/setup-notes.md`).
+
+Details und die konkreten `GetAttributeInfos()`-Ergebnisse siehe
+`docs/setup-notes.md`.

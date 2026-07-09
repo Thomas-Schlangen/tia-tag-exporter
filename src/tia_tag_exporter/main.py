@@ -15,6 +15,14 @@ from tia_tag_exporter.exporter import ExcelExporter
 from tia_tag_exporter.extractor import TagExtractor
 
 
+def _configure_console_encoding() -> None:
+    """Erzwingt UTF-8 auf stdout/stderr, damit Umlaute in CLI-Texten (z. B. --help) auf
+    Windows nicht anhand der lokalen Codepage verstümmelt werden."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def _configure_logging() -> None:
     logger.remove()
     logger.add(sys.stderr, level="INFO", format="<level>{level: <8}</level> | {message}")
@@ -152,6 +160,7 @@ def _run(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_console_encoding()
     _configure_logging()
     args = _parse_args(argv)
 

@@ -62,15 +62,52 @@ zusätzlich `Step7`, `WinCC` und `WinCCUnified` aus demselben Verzeichnis.
 
 `extractor.py` und `main.py` wurden entsprechend angepasst (siehe Git-Historie).
 
+## Live-Test gegen reales Projekt (Stand: 2026-07-09)
+
+Getestet gegen `S7T0160` (Pakeeza, 183 DBs, 2 HMI-Targets, alles TIA V21).
+Ergebnis: **435 PLC-Tags**, **~104.000 DB-Variablen**, **1085 HMI-Tags**
+korrekt exportiert. Dabei zwei zusätzliche Bugs gefunden und behoben:
+
+- `ProjectComposition.Open(string)` existiert nicht — die Methode erwartet
+  ein `System.IO.FileInfo`-Objekt, kein `str`. `connector.py` konstruiert das
+  jetzt über `from System.IO import FileInfo`.
+- Windows-Konsolenausgabe (`argparse --help` u. a.) zeigte Umlaute
+  verstümmelt an, weil `stdout`/`stderr` beim Pipen nicht UTF-8 sondern die
+  lokale Codepage nutzen. `main.py` erzwingt jetzt
+  `sys.stdout.reconfigure(encoding="utf-8")` beim Start.
+
+Außerdem zwei **echte, live verifizierte Grenzen der Openness API** gefunden
+(kein Bug im Tool, aber wichtig für Nutzer):
+
+- **DB-Interface-Member: `Offset` und `Comment` sind bei optimierten
+  Bausteinen (Optimized Block Access) nicht verfügbar.** `member.GetAttributeInfos()`
+  listet für ein Optimized-DB-Member nur `DataTypeName, DefaultValue,
+  ExternalAccessible, ExternalVisible, ExternalWritable, Name, Retain,
+  Setpoint, Snapshot, StartValue` — kein `Offset`, kein `Comment`. Optimierte
+  Bausteine sind seit vielen TIA-Versionen der Standard (TIA verwaltet das
+  Speicherlayout intern, ein fester Byte-Offset existiert dafür schlicht
+  nicht). Im echten Testprojekt waren alle 183 DBs optimiert — die
+  Offset-/Kommentar-Spalte bleibt dort für jede Zeile leer. Das ist korrektes
+  Verhalten, kein Extraktionsfehler.
+- **WinCC Advanced/Comfort HMI-Tags (`Siemens.Engineering.Hmi.Tag.Tag`)
+  exponieren über Openness ausschließlich `Name`.** `tag.GetAttributeInfos()`
+  liefert nur `Name` — `DataType`, `Connection`, `Comment`, `Address` sind für
+  diesen Typ nicht abrufbar (weder als Property noch über `GetAttribute`).
+  Im Testprojekt waren beide gefundenen HMI-Targets vom Typ Advanced/Comfort,
+  daher blieben Datentyp/Verbindung/Kommentar in der HMI-Tags-Tabelle leer.
+  Das ist eine bekannte, harte Einschränkung der Openness API für klassische
+  HMI-Tags (Comfort/Advanced) — kein Bug in `extractor.py`.
+
 ## Offene Punkte
 
-- [ ] Gegen ein reales TIA-Portal-V21-Projekt testen (`GetAttribute`-Strings
-      wurden anhand der Namenskonvention der stark typisierten Properties
-      abgeleitet, aber nicht live gegen ein geöffnetes Projekt verifiziert —
-      eine `.NET`-Reflection ohne laufendes TIA Portal kann keine
-      Attribut-Werte, nur Typ-Signaturen prüfen).
+- [ ] WinCC **Unified** (`HmiSoftware`/`HmiUnified.HmiTags.HmiTag`) ist bisher
+      nur per Reflection (Typsignaturen: echte Properties `DataType`,
+      `Connection`, `Comment` vorhanden) verifiziert, aber noch nicht live
+      gegen ein Projekt mit tatsächlichem WinCC-Unified-Gerät getestet.
+      Kandidat vorhanden: `D:\Daten\Tmp\ProjektNilay\WinCCUnified_V21\`.
 - [ ] `pythonnet` benötigt eine passende .NET-Runtime (i. d. R. .NET Framework
       4.8 — alle V21-Assemblies sind `net48`-Builds); auf Kompatibilität mit
       der installierten Python-Version prüfen.
 - [ ] Prüfen, ob `Safety`-Datenbausteine (safety-relevante DBs) zusätzliche
-      Behandlung benötigen — bisher nicht gesondert berücksichtigt.
+      Behandlung benötigen — im Testprojekt wurden Safety-DBs (`DataToSafety`,
+      `DataFromSafety` etc.) ohne Sonderbehandlung korrekt mit ausgelesen.
