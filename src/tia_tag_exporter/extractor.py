@@ -6,7 +6,7 @@ import logging
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from tia_tag_exporter.project_texts import ProjectTextComments
@@ -218,6 +218,46 @@ class TagExtractor:
         return records
 
     @classmethod
+    def _walk_parent_names(
+        cls,
+        start_node: Any,
+        max_depth: int,
+        stop_at: Callable[[Any], bool] | None = None,
+    ) -> tuple[list[str], bool]:
+        """Läuft die ``Parent``-Kette ab ``start_node`` hoch und sammelt für
+        jeden Knoten dessen ``Name`` (über ``_get_value``, siehe dort —
+        ``.Parent`` liefert generisch typisierte ``IEngineeringObject``-
+        Objekte, bei denen ``getattr(node, "Name")`` nicht funktioniert).
+
+        Bricht ab, wenn ``node`` ``None`` wird, ``max_depth`` erreicht ist,
+        oder — falls angegeben — ``stop_at(node)`` unmittelbar NACH dem
+        Hinzufügen von dessen Namen ``True`` liefert (der Name des
+        Stopp-Knotens landet also noch in der Liste, keiner seiner Vorfahren
+        mehr). Gibt ``(gesammelte Namen, max_depth ohne stop_at-Treffer
+        erreicht)`` zurück — Letzteres, damit Aufrufer wie
+        ``_get_db_folder_path`` bei einem nicht gefundenen Stopp-Knoten
+        weiterhin selbst warnen können.
+
+        Gemeinsame Traversierung für ``_get_db_folder_path`` (mit
+        ``stop_at``, um am Wurzel-``BlockGroup`` abzubrechen) und
+        ``_get_hmi_device_name`` (ohne ``stop_at``, läuft bis zum Ende der
+        Kette) — beide liefen zuvor eine fast identische Kopie derselben
+        Schleife.
+        """
+        names: list[str] = []
+        node = start_node
+        depth = 0
+        while node is not None and depth < max_depth:
+            name = cls._get_value(node, "Name")
+            if name:
+                names.append(name)
+            if stop_at is not None and stop_at(node):
+                return names, False
+            node = getattr(node, "Parent", None)
+            depth += 1
+        return names, depth >= max_depth
+
+    @classmethod
     def _get_hmi_device_name(cls, hmi: Any) -> str | None:
         """Ermittelt den Namen des Hardware-Geräts, dem ein HMI-Software-
         Container angehört (z. B. ``"pn4805-15A10"``) — NICHT ``hmi.Name``
@@ -226,21 +266,12 @@ class TagExtractor:
 
         Wird für die Projekttexte-Suche gebraucht: Der ``ViewPath`` der
         Kategorie ``<HMI comment>`` verwendet den Gerätenamen, nicht den
-        Software-Container-Namen. Läuft die ``Parent``-Kette hoch (wie bei
-        ``_get_db_folder_path`` liefert ``.Parent`` dabei generisch typisierte
-        ``IEngineeringObject``-Objekte, daher ``_get_value`` statt ``getattr``
-        für ``Name``) bis zur Projekt-Wurzel (deren ``Parent`` ``None`` ist)
-        und nimmt den vorletzten Namen — direkt vor dem Projektnamen.
+        Software-Container-Namen. Läuft die ``Parent``-Kette hoch (siehe
+        ``_walk_parent_names``) bis zur Projekt-Wurzel (deren ``Parent``
+        ``None`` ist) und nimmt den vorletzten Namen — direkt vor dem
+        Projektnamen.
         """
-        names: list[str] = []
-        node = hmi
-        depth = 0
-        while node is not None and depth < 20:
-            name = cls._get_value(node, "Name")
-            if name:
-                names.append(name)
-            node = getattr(node, "Parent", None)
-            depth += 1
+        names, _ = cls._walk_parent_names(hmi, max_depth=20)
         return names[-2] if len(names) >= 2 else None
 
     @classmethod
@@ -419,34 +450,27 @@ class TagExtractor:
         Klasse. Dadurch (a) war ``getattr(node, "Name", None)`` immer
         ``None`` (die ``Name``-Property existiert auf dem konkreten Typ, ist
         über das Interface aber unsichtbar — Fix: ``GetAttribute("Name")``,
-        das das Interface tatsächlich deklariert) und (b)
-        ``isinstance(node, PlcSoftware)`` hat nie gematcht, wodurch die
-        Schleife am ``PlcSoftware``-Knoten vorbei bis hoch zur
+        das das Interface tatsächlich deklariert, siehe ``_walk_parent_names``)
+        und (b) ``isinstance(node, PlcSoftware)`` hat nie gematcht, wodurch
+        die Schleife am ``PlcSoftware``-Knoten vorbei bis hoch zur
         ``TiaPortal``-Wurzel gelaufen wäre (Fix: ``node.Equals(plc.BlockGroup)``
         als Abbruchbedingung, da wir den Zielknoten bereits referenziell
         kennen, statt ihn per Typprüfung zu erkennen).
         """
         root_group = getattr(plc, "BlockGroup", None)
-        segments: list[str] = []
-        node = getattr(db, "Parent", None)
-
-        depth = 0
         max_depth = 50  # Sicherheitsnetz falls root_group nie erreicht wird
-        while node is not None and depth < max_depth:
-            name = cls._get_value(node, "Name")
-            if name:
-                segments.append(name)
-            if root_group is not None and node.Equals(root_group):
-                break
-            node = getattr(node, "Parent", None)
-            depth += 1
-        else:
-            if depth >= max_depth:
-                logger.warning(
-                    "DB-Ordnerpfad: Wurzel-BlockGroup nach %d Ebenen nicht erreicht, "
-                    "Pfad könnte unvollständig/zu lang sein.",
-                    max_depth,
-                )
+
+        segments, hit_max_depth = cls._walk_parent_names(
+            getattr(db, "Parent", None),
+            max_depth,
+            stop_at=lambda node: root_group is not None and node.Equals(root_group),
+        )
+        if hit_max_depth:
+            logger.warning(
+                "DB-Ordnerpfad: Wurzel-BlockGroup nach %d Ebenen nicht erreicht, "
+                "Pfad könnte unvollständig/zu lang sein.",
+                max_depth,
+            )
 
         plc_name = cls._get_value(plc, "Name")
         if plc_name:
