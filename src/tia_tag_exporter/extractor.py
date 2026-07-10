@@ -6,16 +6,58 @@ import logging
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from tia_tag_exporter.project_texts import ProjectTextComments
 
 logger = logging.getLogger(__name__)
 
-PlcTagRecord = dict[str, Any]
-HmiTagRecord = dict[str, Any]
-DbVariableRecord = dict[str, Any]
+
+class PlcTagRecord(TypedDict):
+    """Ein Datensatz aus ``TagExtractor.extract_plc_tags``."""
+
+    Variablentabelle: str
+    Name: str
+    Datentyp: str
+    Adresse: str
+    Kommentar: str
+    Zugriffsebene: str
+
+
+# Funktionale statt Klassen-Syntax, da "PLC-Variable" kein gültiger
+# Python-Bezeichner ist (Bindestrich).
+HmiTagRecord = TypedDict(
+    "HmiTagRecord",
+    {
+        "Variablentabelle": str,
+        "Name": str,
+        "Datentyp": str,
+        "Verbindung": str,
+        "PLC-Variable": str,
+        "Kommentar": str,
+        "Quellkommentar": str,
+    },
+)
+"""Ein Datensatz aus ``TagExtractor.extract_hmi_tags``."""
+
+
+class DbVariableRecord(TypedDict):
+    """Ein Datensatz aus ``TagExtractor.extract_db_variables``.
+
+    ``_folder_path``/``_db_name`` sind ``NotRequired``: ``_collect_members``
+    baut die übrigen Felder zuerst, ``extract_db_variables`` ergänzt diese
+    beiden erst danach für jeden Record (siehe dort) — zum Zeitpunkt der
+    ersten Erstellung fehlen sie also noch.
+    """
+
+    Name: str
+    Datentyp: str | None
+    Offset: Any
+    Kommentar: str
+    Initialwert: Any
+    _folder_path: NotRequired[list[str]]
+    _db_name: NotRequired[str]
 
 # Elementare IEC-61131-Datentypen — Member mit einem dieser Typen (auch als
 # "Array[...] of <Typ>") haben nie ein Struct/UDT dahinter und brauchen keine
