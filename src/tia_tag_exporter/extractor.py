@@ -106,14 +106,13 @@ class TagExtractor:
             hmi: Ein HMI-Software-Objekt (Advanced/Comfort ``HmiTarget`` oder
                 Unified ``HmiSoftware``).
             project_texts: Nachschlage-Tabelle für Kommentare (siehe
-                ``project_texts.ProjectTextComments``) — dient hier als
-                Fallback: Bei WinCC Advanced/Comfort ist der eigene
-                Tag-Kommentar über Openness nicht abrufbar, aber die
-                verknüpfte PLC-Variable (``PLC-Variable``-Spalte) hat oft
-                denselben Kommentar hinterlegt wie die HMI-Variable selbst.
+                ``project_texts.ProjectTextComments``) — wird hier für die
+                Spalte ``Quellkommentar`` gebraucht (siehe
+                ``_read_quellkommentar``), NICHT für ``Kommentar`` selbst.
 
         Returns:
-            Liste von Dicts mit Name, Datentyp, Verbindung, PLC-Variable, Kommentar.
+            Liste von Dicts mit Name, Datentyp, Verbindung, PLC-Variable,
+            Kommentar, Quellkommentar.
         """
         records: list[HmiTagRecord] = []
         tag_tables = list(self._iter_hmi_tag_tables(hmi))
@@ -134,8 +133,12 @@ class TagExtractor:
                     # docs/setup-notes.md), kein Bug. Bei WinCC Unified sind es
                     # echte Properties und werden korrekt gefüllt.
                     controller_tag = controller_tags.get(tag.Name)
-                    own_comment = self._read_comment(self._get_value(tag, "Comment"))
-                    plc_comment = self._read_linked_plc_comment(controller_tag, project_texts)
+                    comment = self._read_comment(self._get_value(tag, "Comment"))
+                    # Quellkommentar: NICHT der Kommentar des HMI-Tags selbst,
+                    # sondern der Kommentar der verknüpften PLC-Variable
+                    # (Quelle = PLC-Seite) — bewusst eine eigene Spalte, kein
+                    # Fallback/Ersatz für "Kommentar".
+                    quellkommentar = self._read_quellkommentar(controller_tag, project_texts)
                     records.append(
                         {
                             "Variablentabelle": table_name,
@@ -143,7 +146,8 @@ class TagExtractor:
                             "Datentyp": self._read_hmi_data_type(tag),
                             "Verbindung": self._read_hmi_connection(tag),
                             "PLC-Variable": controller_tag or "",
-                            "Kommentar": own_comment or plc_comment or "",
+                            "Kommentar": comment or "",
+                            "Quellkommentar": quellkommentar or "",
                         }
                     )
                 except Exception as exc:  # noqa: BLE001
@@ -157,13 +161,17 @@ class TagExtractor:
         return records
 
     @classmethod
-    def _read_linked_plc_comment(
+    def _read_quellkommentar(
         cls, controller_tag: str | None, project_texts: "ProjectTextComments | None"
     ) -> str | None:
-        """Liest den Kommentar der PLC-Variable, mit der ein HMI-Tag verknüpft
-        ist (``controller_tag`` im Format ``DB.Member[.Sub...]``, siehe
-        ``_read_controller_tags``), über dieselbe Projekttexte-Nachschlage-
-        Tabelle wie die DB-Variablen-Kommentare. Ohne PLC-Namen im Schlüssel
+        """Liefert den "Quellkommentar" eines HMI-Tags: den Kommentar der
+        verknüpften PLC-Variable (die "Quelle" der HMI-Variable), NICHT den
+        Kommentar des HMI-Tags selbst — das ist eine eigenständige Spalte
+        ("Quellkommentar"), kein Ersatzwert für die Spalte "Kommentar".
+
+        ``controller_tag`` im Format ``DB.Member[.Sub...]`` (siehe
+        ``_read_controller_tags``), Lookup über dieselbe Projekttexte-
+        Nachschlage-Tabelle wie die DB-Variablen-Kommentare. Ohne PLC-Namen im Schlüssel
         (siehe ``ProjectTextComments.get_by_db_member``), da für ein HMI-Tag
         an dieser Stelle nicht bekannt ist, zu welcher PLC die Ziel-DB gehört.
         """

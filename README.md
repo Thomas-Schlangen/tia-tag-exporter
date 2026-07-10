@@ -84,7 +84,7 @@ Eine Excel-Datei mit einem Deckblatt und bis zu drei weiteren Arbeitsblättern:
 |---|---|
 | Deckblatt | Kunde, Projekt, Anlage, Erstellt von, Datum, Version, Bemerkung (zum Ausfüllen) |
 | PLC-Tags | Variablentabelle, Name, Datentyp, Adresse, Kommentar, Zugriffsebene |
-| HMI-Tags | Variablentabelle, Name, Datentyp, Verbindung, PLC-Variable, Kommentar |
+| HMI-Tags | Variablentabelle, Name, Datentyp, Verbindung, PLC-Variable, Kommentar, Quellkommentar |
 | DB-Variablen | Pfad, Ordnerebene 1..N, DB-Name, Variablenname, Datentyp, Offset, Kommentar, Initialwert |
 
 Im DB-Variablen-Sheet enthält Spalte A ("Pfad") den vollständigen Ordnerpfad
@@ -163,16 +163,18 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
   läuft einmal pro Tag-Tabelle (nicht pro Tag) und wird intern geparst.
   Rein interne, nicht mit der PLC verknüpfte HMI-Tags bleiben dabei
   korrekterweise leer (kein `ControllerTag`-Element im Export).
-- **HMI-Tags: `Kommentar` fällt auf den Kommentar der verknüpften
-  PLC-Variable zurück, wenn das Tag selbst keinen hat.** Bei WinCC
-  Advanced/Comfort ist der eigene Tag-Kommentar über Openness nicht
-  abrufbar — der Export sucht dann über `PLC-Variable` (DB-Name +
-  Membername) in denselben Projekttexten nach, die auch für die
+- **HMI-Tags: `Quellkommentar` ist NICHT der Kommentar des HMI-Tags
+  selbst, sondern der Kommentar der verknüpften PLC-Variable** (die
+  "Quelle" der HMI-Variable) — eine eigenständige Spalte, kein Ersatzwert
+  für `Kommentar`. Bei WinCC Advanced/Comfort ist der eigene Tag-Kommentar
+  über Openness ohnehin nicht abrufbar, daher bleibt `Kommentar` dort meist
+  leer, während `Quellkommentar` über `PLC-Variable` (DB-Name + Membername)
+  in denselben Projekttexten nachschlägt, die auch für die
   DB-Variablen-Kommentare genutzt werden. Ohne PLC-Namen im Schlüssel (an
   dieser Stelle nicht bekannt, zu welcher PLC die Ziel-DB gehört) — bei
   mehreren PLCs mit gleichnamigem DB und Member theoretisch mehrdeutig,
   in der Praxis vernachlässigbar. Live verifiziert: 65 von 177 HMI-Tags
-  in einem realen Projekt erhalten so einen echten Kommentar.
+  in einem realen Projekt erhalten so einen `Quellkommentar`.
 - **WinCC Unified** ist bisher nur anhand der .NET-Typsignaturen verifiziert
   (per Reflection: `HmiUnified.HmiTags.HmiTag` hat echte `DataType`-,
   `Connection`- und `Comment`-Properties), aber noch nicht live gegen ein
