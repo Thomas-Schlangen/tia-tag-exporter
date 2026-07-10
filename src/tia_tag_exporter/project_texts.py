@@ -7,16 +7,20 @@ existieren aber sehr wohl im Projekt: TIA Portal verwaltet sie zentral unter
 "Sprachen & Ressourcen > Projekttexte", exportierbar über
 ``Project.ExportProjectTexts()``. Dieses Modul exportiert die Projekttexte
 einmalig in eine temporäre Excel-Datei und baut daraus eine Nachschlage-Tabelle
-(DB-Name, Variablenname) -> Kommentartext.
+(PLC-Name, DB-Name, Variablenname) -> Kommentartext.
 
 Live verifiziert: Zeilen der Kategorie ``<BlockCommentCategoryData>`` mit
 einem ``ViewPath`` wie
 ``{Projekt}\\{PLC}\\Programmbausteine\\...\\{DB-Name}\\{Membername}`` (bei
 verschachtelten Struct-Membern mit Punktnotation, z. B. ``4805_30M1.Drive`` —
-identisch zur eigenen ``full_name``-Konvention in ``extractor.py``). Andere
-Zeilen derselben Kategorie (Bausteinkommentare, Netzwerkkommentare im Code,
-UDT-Kommentare) landen ebenfalls im internen Dict, matchen aber nie einen
-echten (DB-Name, Variablenname)-Schlüssel und werden schlicht nie abgefragt.
+identisch zur eigenen ``full_name``-Konvention in ``extractor.py``). Der
+PLC-Name (zweites Pfadsegment, direkt nach dem Projektnamen) wird mit in den
+Schlüssel aufgenommen — DB-Namen sind zwar innerhalb einer PLC eindeutig,
+aber nicht projektweit über mehrere PLCs hinweg, und der ``ViewPath`` enthält
+den PLC-Namen ohnehin bereits explizit. Andere Zeilen derselben Kategorie
+(Bausteinkommentare, Netzwerkkommentare im Code, UDT-Kommentare) landen
+ebenfalls im internen Dict, matchen aber nie einen echten
+(PLC-Name, DB-Name, Variablenname)-Schlüssel und werden schlicht nie abgefragt.
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ class ProjectTextComments:
     """Nachschlage-Tabelle für DB-Variablen-Kommentare aus den Projekttexten."""
 
     def __init__(self) -> None:
-        self._comments: dict[tuple[str, str], str] = {}
+        self._comments: dict[tuple[str, str, str], str] = {}
 
     @classmethod
     def load(cls, project: Any) -> "ProjectTextComments":
@@ -92,17 +96,19 @@ class ProjectTextComments:
                         continue
 
                     segments = view_path.split("\\")
-                    if len(segments) < 2:
+                    if len(segments) < 3:
                         continue
+                    plc_name = segments[1]
                     db_name = segments[-2]
                     member_path = segments[-1]
-                    self._comments[(db_name, member_path)] = text
+                    self._comments[(plc_name, db_name, member_path)] = text
             finally:
                 workbook.close()
 
         logger.info("%d DB-Variablen-Kommentare aus Projekttexten geladen", len(self._comments))
 
-    def get(self, db_name: str, member_path: str) -> str | None:
-        """Liefert den Kommentar für ``db_name``/``member_path`` (Punktnotation
-        bei verschachtelten Membern), oder ``None`` falls keiner hinterlegt ist."""
-        return self._comments.get((db_name, member_path))
+    def get(self, plc_name: str, db_name: str, member_path: str) -> str | None:
+        """Liefert den Kommentar für ``plc_name``/``db_name``/``member_path``
+        (Punktnotation bei verschachtelten Membern), oder ``None`` falls keiner
+        hinterlegt ist."""
+        return self._comments.get((plc_name, db_name, member_path))

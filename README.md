@@ -147,9 +147,10 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
   Export liest diese daher zusätzlich über
   [`project_texts.py`](src/tia_tag_exporter/project_texts.py) aus
   (`Project.ExportProjectTexts()`, Kategorie `<BlockCommentCategoryData>`)
-  und ordnet sie über Pfad + Membername den DB-Variablen zu — nicht über eine
-  direkte Objekt-Referenz, daher eine Heuristik statt einer Garantie (siehe
-  Docstring der Klasse für Details und bekannte Grenzfälle).
+  und ordnet sie über PLC-Name + DB-Name + Membername den DB-Variablen zu
+  (nicht über eine direkte Objekt-Referenz, sondern per Pfad-String aus dem
+  Export — der PLC-Name macht den Schlüssel projektweit eindeutig, siehe
+  Docstring der Klasse).
 - **HMI-Tags bei WinCC Advanced/Comfort: nur `Name` ist über Openness
   abrufbar.** `Datentyp`, `Verbindung` und `Kommentar` bleiben für diesen
   HMI-Typ grundsätzlich leer — die Openness API stellt diese Werte für

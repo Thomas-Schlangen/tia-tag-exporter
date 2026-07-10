@@ -160,6 +160,7 @@ class TagExtractor:
             sowie ``_folder_path`` (Ordnerpfad des DBs) und ``_db_name``.
         """
         db_name = getattr(db, "Name", "?")
+        plc_name = getattr(plc, "Name", "?")
 
         # TIA Portal V19 (headless/WithoutUserInterface) hat sich in Tests wiederholt
         # als instabil erwiesen: dieselbe Extraktion scheitert nicht-deterministisch
@@ -175,7 +176,14 @@ class TagExtractor:
             records = []
             try:
                 members = db.Interface.Members
-                self._collect_members(members, prefix="", records=records, db_name=db_name, project_texts=project_texts)
+                self._collect_members(
+                    members,
+                    prefix="",
+                    records=records,
+                    plc_name=plc_name,
+                    db_name=db_name,
+                    project_texts=project_texts,
+                )
                 break
             except Exception as exc:  # noqa: BLE001
                 if attempt == max_attempts:
@@ -264,6 +272,7 @@ class TagExtractor:
         members: Any,
         prefix: str,
         records: list[DbVariableRecord],
+        plc_name: str,
         db_name: str,
         project_texts: "ProjectTextComments | None",
     ) -> None:
@@ -283,7 +292,9 @@ class TagExtractor:
                 data_type = values.get("DataTypeName")
                 comment = (
                     project_texts.get(
-                        self._normalize_member_path(db_name), self._normalize_member_path(full_name)
+                        self._normalize_member_path(plc_name),
+                        self._normalize_member_path(db_name),
+                        self._normalize_member_path(full_name),
                     )
                     if project_texts is not None
                     else None
@@ -307,7 +318,12 @@ class TagExtractor:
             nested = self._get_nested_members(member)
             if nested is not None and len(nested) > 0:
                 self._collect_members(
-                    nested, prefix=f"{full_name}.", records=records, db_name=db_name, project_texts=project_texts
+                    nested,
+                    prefix=f"{full_name}.",
+                    records=records,
+                    plc_name=plc_name,
+                    db_name=db_name,
+                    project_texts=project_texts,
                 )
 
     @staticmethod
