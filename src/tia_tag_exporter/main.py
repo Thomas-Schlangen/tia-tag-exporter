@@ -14,6 +14,7 @@ from tia_tag_exporter.config_schema import AppConfig
 from tia_tag_exporter.connector import TiaConnectionError, TiaConnector
 from tia_tag_exporter.exporter import ExcelExporter
 from tia_tag_exporter.extractor import TagExtractor
+from tia_tag_exporter.project_texts import ProjectTextComments
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,14 @@ def run_export(
                     except ImportError:
                         disposed_exc_types = (Exception,)
 
+                project_texts = None
+                if include_db:
+                    # DB-Interface-Member haben kein Comment-Attribut (live verifiziert,
+                    # siehe docs/setup-notes.md) — die Kommentare kommen stattdessen aus
+                    # der zentralen Projekttexte-Verwaltung.
+                    report("Lese Projekttexte für DB-Variablen-Kommentare ...")
+                    project_texts = ProjectTextComments.load(project)
+
                 if include_plc or include_db:
                     plc_software_list = _find_plc_software_list(project)
                     report(f"{len(plc_software_list)} PLC-Software-Container gefunden")
@@ -171,7 +180,7 @@ def run_export(
                                 db_key = (plc_name, getattr(db, "Name", "?"))
                                 if db_key in done_dbs:
                                     continue
-                                data["db_variables"].extend(extractor.extract_db_variables(db, plc))
+                                data["db_variables"].extend(extractor.extract_db_variables(db, plc, project_texts))
                                 done_dbs.add(db_key)
 
                 if include_hmi:

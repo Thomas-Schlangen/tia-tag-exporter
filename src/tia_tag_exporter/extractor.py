@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from tia_tag_exporter.project_texts import ProjectTextComments
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +140,9 @@ class TagExtractor:
         logger.info("%d HMI-Tags extrahiert", len(records))
         return records
 
-    def extract_db_variables(self, db: Any, plc: Any) -> list[DbVariableRecord]:
+    def extract_db_variables(
+        self, db: Any, plc: Any, project_texts: "ProjectTextComments | None" = None
+    ) -> list[DbVariableRecord]:
         """Extrahiert alle Variablen aus einem Datenbaustein (rekursiv über Structs).
 
         Args:
@@ -145,6 +150,10 @@ class TagExtractor:
                 (``Siemens.Engineering.SW.Blocks.DataBlock``, mit ``Interface``).
             plc: Das ``PlcSoftware``-Objekt, dem ``db`` angehört (für den
                 Ordnerpfad, siehe ``_get_db_folder_path``).
+            project_texts: Nachschlage-Tabelle für DB-Variablen-Kommentare (siehe
+                ``project_texts.ProjectTextComments``) — ``Interface.Member`` hat
+                selbst kein Comment-Attribut, die Kommentare kommen aus der
+                zentralen Projekttexte-Verwaltung. ``None`` lässt "Kommentar" leer.
 
         Returns:
             Liste von Dicts mit Name, Datentyp, Offset, Kommentar, Initialwert,
@@ -166,7 +175,7 @@ class TagExtractor:
             records = []
             try:
                 members = db.Interface.Members
-                self._collect_members(members, prefix="", records=records)
+                self._collect_members(members, prefix="", records=records, db_name=db_name, project_texts=project_texts)
                 break
             except Exception as exc:  # noqa: BLE001
                 if attempt == max_attempts:
@@ -250,23 +259,41 @@ class TagExtractor:
         segments.reverse()
         return segments
 
-    def _collect_members(self, members: Any, prefix: str, records: list[DbVariableRecord]) -> None:
+    def _collect_members(
+        self,
+        members: Any,
+        prefix: str,
+        records: list[DbVariableRecord],
+        db_name: str,
+        project_texts: "ProjectTextComments | None",
+    ) -> None:
         for member in members:
             full_name = f"{prefix}{member.Name}"
             data_type = None
             try:
-                # Offset/Comment bleiben leer, wenn der Baustein "Optimized" ist
-                # (TIA-Standard seit vielen Versionen) — Openness kennt dafür keinen
-                # festen Byte-Offset und keinen Member-Kommentar. Live gegen ein
-                # reales Projekt verifiziert (siehe docs/setup-notes.md), kein Bug.
+                # Offset bleibt leer, wenn der Baustein "Optimized" ist (TIA-Standard
+                # seit vielen Versionen) — Openness kennt dafür keinen festen
+                # Byte-Offset. Live gegen ein reales Projekt verifiziert (siehe
+                # docs/setup-notes.md), kein Bug. "Comment" existiert auf
+                # Interface.Member grundsätzlich nicht (ebenfalls live verifiziert,
+                # über alle Member-Typen eines Projekts) — der Kommentar kommt
+                # stattdessen aus der zentralen Projekttexte-Verwaltung, siehe
+                # project_texts.ProjectTextComments.
                 values = self._read_member_attributes(member)
                 data_type = values.get("DataTypeName")
+                comment = (
+                    project_texts.get(
+                        self._normalize_member_path(db_name), self._normalize_member_path(full_name)
+                    )
+                    if project_texts is not None
+                    else None
+                )
                 records.append(
                     {
                         "Name": full_name,
                         "Datentyp": data_type,
                         "Offset": values.get("Offset"),
-                        "Kommentar": self._read_comment(values.get("Comment")),
+                        "Kommentar": comment or "",
                         "Initialwert": values.get("StartValue"),
                     }
                 )
@@ -279,7 +306,23 @@ class TagExtractor:
 
             nested = self._get_nested_members(member)
             if nested is not None and len(nested) > 0:
-                self._collect_members(nested, prefix=f"{full_name}.", records=records)
+                self._collect_members(
+                    nested, prefix=f"{full_name}.", records=records, db_name=db_name, project_texts=project_texts
+                )
+
+    @staticmethod
+    def _normalize_member_path(full_name: str) -> str:
+        """Entfernt Anführungszeichen, die TIA um Member-Namen setzt, die keine
+        gültigen "einfachen" Bezeichner sind (z. B. weil sie mit einer Ziffer
+        beginnen: ``member.Name`` liefert ``"4805_30M1"`` mit Quotes). Die
+        ``ViewPath``-Segmente aus ``ExportProjectTexts()`` sind dagegen immer
+        unquotiert — ohne diese Normalisierung matchen quotierte Membernamen
+        nie einen Kommentar aus den Projekttexten. Live verifiziert: ohne
+        diesen Fix wurden z. B. bei DB "Mp01" nur die wenigen unquotierten
+        Membernamen (wie "lr") gefunden, alle quotierten (wie "4805_30M1")
+        blieben ohne Kommentar, obwohl einer hinterlegt war.
+        """
+        return ".".join(segment.strip('"') for segment in full_name.split("."))
 
     def _read_member_attributes(self, member: Any) -> dict[str, Any]:
         """Liest ``_WANTED_MEMBER_ATTRIBUTES`` für ein Member in möglichst

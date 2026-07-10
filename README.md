@@ -133,13 +133,23 @@ tia-tag-exporter/
 Live gegen ein reales V21-Projekt getestet (435 PLC-Tags, ~104.000
 DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
 
-- **DB-Variablen: `Offset` und `Kommentar` bleiben bei optimierten
-  Datenbausteinen (Optimized Block Access) leer.** Das ist keine
-  Extraktionslücke, sondern eine harte Grenze der Openness API: Optimierte
-  DBs (in modernen TIA-Projekten der Regelfall) haben keinen festen
-  Byte-Offset, und einzelne Interface-Member exponieren dort keinen
-  Kommentar. Nur bei "Standard"-Zugriff (nicht optimiert) sind diese Werte
-  überhaupt vorhanden.
+- **DB-Variablen: `Offset` bleibt bei optimierten Datenbausteinen (Optimized
+  Block Access) leer.** Das ist keine Extraktionslücke, sondern eine harte
+  Grenze der Openness API: Optimierte DBs (in modernen TIA-Projekten der
+  Regelfall) haben keinen festen Byte-Offset. Nur bei "Standard"-Zugriff
+  (nicht optimiert) ist dieser Wert überhaupt vorhanden.
+- **DB-Variablen: `Kommentar` kommt nicht aus `Interface.Member` selbst.**
+  `Siemens.Engineering.SW.Blocks.Interface.Member` hat live erschöpfend
+  verifiziert (alle Member-Typen eines realen Projekts) kein Comment-Attribut
+  — weder einfach noch mehrsprachig (`CommentML`). Kommentare für
+  DB-Variablen liegen stattdessen ausschließlich in TIA Portals zentraler
+  Projekttexte-Verwaltung ("Sprachen & Ressourcen > Projekttexte"). Der
+  Export liest diese daher zusätzlich über
+  [`project_texts.py`](src/tia_tag_exporter/project_texts.py) aus
+  (`Project.ExportProjectTexts()`, Kategorie `<BlockCommentCategoryData>`)
+  und ordnet sie über Pfad + Membername den DB-Variablen zu — nicht über eine
+  direkte Objekt-Referenz, daher eine Heuristik statt einer Garantie (siehe
+  Docstring der Klasse für Details und bekannte Grenzfälle).
 - **HMI-Tags bei WinCC Advanced/Comfort: nur `Name` ist über Openness
   abrufbar.** `Datentyp`, `Verbindung` und `Kommentar` bleiben für diesen
   HMI-Typ grundsätzlich leer — die Openness API stellt diese Werte für
