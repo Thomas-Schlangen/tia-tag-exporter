@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -27,6 +27,8 @@ _THIN_BORDER = Border(
     top=Side(style="thin"),
     bottom=Side(style="thin"),
 )
+
+_MAX_COLUMN_WIDTH = 60
 
 
 class ExcelExporter:
@@ -117,13 +119,36 @@ class ExcelExporter:
                 cell.data_type = "s"
 
     @staticmethod
-    def _write_sheet(sheet: Worksheet, records: list[dict[str, Any]]) -> None:
-        """Schreibt PLC-Tags/HMI-Tags: Zeilen werden nach Spalte A
-        ("Variablentabelle") gruppiert und lassen sich per ``outline_level``
-        links über +/- ein- und ausklappen (wie beim DB-Variablen-Sheet).
-        Zwischen den Tabellen-Blöcken steht je eine Leerzeile.
+    def _write_grouped_rows(
+        sheet: Worksheet,
+        headers: list[str],
+        records: list[dict[str, Any]],
+        row_builder: Callable[[dict[str, Any]], list[Any]],
+        group_key_fn: Callable[[dict[str, Any]], Any],
+        measure_content: bool,
+    ) -> None:
+        """Schreibt Kopfzeile + gruppierte, einklappbare Datenzeilen für ein Sheet.
+
+        Gemeinsame Logik für PLC-Tags/HMI-Tags (``_write_sheet``) und
+        DB-Variablen (``_write_db_variables_sheet``): Kopfzeile fett formatiert,
+        Zeilen werden per ``group_key_fn`` gruppiert (Leerzeile beim
+        Gruppenwechsel, ``outline_level`` fürs Einklappen), erste Zeile
+        eingefroren, Spaltenbreiten automatisch angepasst.
+
+        ``row_builder`` wandelt einen Record in die zu schreibende Werteliste
+        um (in derselben Reihenfolge wie ``headers``); ``group_key_fn`` liefert
+        den Gruppierungswert für einen Record.
+
+        ``measure_content`` steuert, ob die Spaltenbreite zusätzlich am
+        tatsächlichen Zellinhalt gemessen wird (über ``row_builder``, ein
+        weiterer Durchlauf über alle Records — für PLC-/HMI-Tags mit wenigen
+        hundert Zeilen unproblematisch) oder nur an der Kopfzeile (schneller,
+        nötig für DB-Variablen mit teils zehntausenden Zeilen). Die
+        Padding-Konstante unterscheidet sich entsprechend (siehe unten) — das
+        ist Absicht, kein Bug: mit Inhaltsmessung braucht es weniger Puffer,
+        ohne sie etwas mehr, damit auch ungemessene, tendenziell längere
+        Werte nicht sofort abgeschnitten wirken.
         """
-        headers = list(records[0].keys())
         ExcelExporter._write_row(sheet, 1, headers)
 
         header_font = Font(bold=True)
@@ -132,16 +157,15 @@ class ExcelExporter:
 
         sheet.sheet_properties.outlinePr.summaryBelow = False
 
-        group_key = headers[0]
         current_group: Any = None
         row_index = 1
         for record in records:
-            group_value = record.get(group_key)
+            group_value = group_key_fn(record)
             if current_group is not None and group_value != current_group:
                 row_index += 1  # Leerzeile zwischen Gruppen-Blöcken (Zelle bleibt ungeschrieben = leer)
 
             row_index += 1
-            ExcelExporter._write_row(sheet, row_index, [record.get(header, "") for header in headers])
+            ExcelExporter._write_row(sheet, row_index, row_builder(record))
 
             if group_value == current_group:
                 sheet.row_dimensions[row_index].outline_level = 1
@@ -149,12 +173,36 @@ class ExcelExporter:
 
         sheet.freeze_panes = "A2"
 
-        for col_index, header in enumerate(headers, start=1):
-            max_length = len(str(header))
+        padding = 2 if measure_content else 4
+        max_lengths = [len(str(header)) for header in headers]
+        if measure_content:
             for record in records:
-                value = record.get(header, "")
-                max_length = max(max_length, len(str(value)))
-            sheet.column_dimensions[get_column_letter(col_index)].width = min(max_length + 2, 60)
+                for col_index, value in enumerate(row_builder(record)):
+                    max_lengths[col_index] = max(max_lengths[col_index], len(str(value)))
+
+        for col_index, max_length in enumerate(max_lengths, start=1):
+            sheet.column_dimensions[get_column_letter(col_index)].width = min(
+                max_length + padding, _MAX_COLUMN_WIDTH
+            )
+
+    @staticmethod
+    def _write_sheet(sheet: Worksheet, records: list[dict[str, Any]]) -> None:
+        """Schreibt PLC-Tags/HMI-Tags: Zeilen werden nach Spalte A
+        ("Variablentabelle") gruppiert und lassen sich per ``outline_level``
+        links über +/- ein- und ausklappen (wie beim DB-Variablen-Sheet).
+        Zwischen den Tabellen-Blöcken steht je eine Leerzeile.
+        """
+        headers = list(records[0].keys())
+        group_key = headers[0]
+
+        ExcelExporter._write_grouped_rows(
+            sheet,
+            headers,
+            records,
+            row_builder=lambda record: [record.get(header, "") for header in headers],
+            group_key_fn=lambda record: record.get(group_key),
+            measure_content=True,
+        )
 
     @staticmethod
     def _write_db_variables_sheet(sheet: Worksheet, records: list[dict[str, Any]]) -> None:
@@ -171,39 +219,23 @@ class ExcelExporter:
             header for header in records[0].keys() if header not in ("Name", "_folder_path", "_db_name")
         ]
         headers = ["DB-Name", "Pfad", *folder_headers, "Variablenname", *other_headers]
-        ExcelExporter._write_row(sheet, 1, headers)
 
-        header_font = Font(bold=True)
-        for cell in sheet[1]:
-            cell.font = header_font
-
-        sheet.sheet_properties.outlinePr.summaryBelow = False
-
-        current_db: str | None = None
-        row_index = 1
-        for record in records:
-            db_name = record.get("_db_name")
-            if current_db is not None and db_name != current_db:
-                row_index += 1  # Leerzeile zwischen DB-Blöcken (Zelle bleibt ungeschrieben = leer)
-
+        def _build_row(record: dict[str, Any]) -> list[Any]:
             folder_path = record.get("_folder_path", [])
             folder_cells = [folder_path[i] if i < len(folder_path) else "" for i in range(max_depth)]
-            row_index += 1
-            row = [
+            return [
                 record.get("_db_name", ""),
                 " - ".join(folder_path),
                 *folder_cells,
                 record.get("Name", ""),
                 *[record.get(header, "") for header in other_headers],
             ]
-            ExcelExporter._write_row(sheet, row_index, row)
 
-            if db_name == current_db:
-                sheet.row_dimensions[row_index].outline_level = 1
-            current_db = db_name
-
-        sheet.freeze_panes = "A2"
-
-        for col_index, header in enumerate(headers, start=1):
-            max_length = len(str(header))
-            sheet.column_dimensions[get_column_letter(col_index)].width = min(max_length + 4, 60)
+        ExcelExporter._write_grouped_rows(
+            sheet,
+            headers,
+            records,
+            row_builder=_build_row,
+            group_key_fn=lambda record: record.get("_db_name"),
+            measure_content=False,
+        )
