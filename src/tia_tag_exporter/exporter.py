@@ -112,17 +112,18 @@ class ExcelExporter:
 
     @staticmethod
     def _write_db_variables_sheet(sheet: Worksheet, records: list[dict[str, Any]]) -> None:
-        """Schreibt das DB-Variablen-Sheet: Ordnerebenen als eigene Spalten (A, B, C, ...),
-        gefolgt von DB-Name, Variablenname und den übrigen Feldern. Zeilen desselben DBs
-        werden per ``outline_level`` gruppiert, sodass sie im DB links per +/- eingeklappt
-        werden können.
+        """Schreibt das DB-Variablen-Sheet: Spalte A "Pfad" (Ordnerpfad als
+        Text, Ebenen mit " - " verbunden), gefolgt von den Ordnerebenen als
+        eigene Spalten, DB-Name, Variablenname und den übrigen Feldern. Zeilen
+        desselben DBs werden per ``outline_level`` gruppiert, sodass sie im DB
+        links per +/- eingeklappt werden können.
         """
         max_depth = max((len(record.get("_folder_path", [])) for record in records), default=0)
         folder_headers = [f"Ordnerebene {i + 1}" for i in range(max_depth)]
         other_headers = [
             header for header in records[0].keys() if header not in ("Name", "_folder_path", "_db_name")
         ]
-        headers = [*folder_headers, "DB-Name", "Variablenname", *other_headers]
+        headers = ["Pfad", *folder_headers, "DB-Name", "Variablenname", *other_headers]
         sheet.append(headers)
 
         header_font = Font(bold=True)
@@ -136,6 +137,7 @@ class ExcelExporter:
             folder_path = record.get("_folder_path", [])
             folder_cells = [folder_path[i] if i < len(folder_path) else "" for i in range(max_depth)]
             row = [
+                " - ".join(folder_path),
                 *folder_cells,
                 record.get("_db_name", ""),
                 record.get("Name", ""),
