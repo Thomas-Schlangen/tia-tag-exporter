@@ -116,7 +116,8 @@ class ExcelExporter:
         Text, Ebenen mit " - " verbunden), gefolgt von den Ordnerebenen als
         eigene Spalten, DB-Name, Variablenname und den übrigen Feldern. Zeilen
         desselben DBs werden per ``outline_level`` gruppiert, sodass sie im DB
-        links per +/- eingeklappt werden können.
+        links per +/- eingeklappt werden können. Zwischen den DB-Blöcken steht
+        je eine Leerzeile.
         """
         max_depth = max((len(record.get("_folder_path", [])) for record in records), default=0)
         folder_headers = [f"Ordnerebene {i + 1}" for i in range(max_depth)]
@@ -133,7 +134,13 @@ class ExcelExporter:
         sheet.sheet_properties.outlinePr.summaryBelow = False
 
         current_db: str | None = None
-        for row_index, record in enumerate(records, start=2):
+        row_index = 1
+        for record in records:
+            db_name = record.get("_db_name")
+            if current_db is not None and db_name != current_db:
+                sheet.append([])
+                row_index += 1
+
             folder_path = record.get("_folder_path", [])
             folder_cells = [folder_path[i] if i < len(folder_path) else "" for i in range(max_depth)]
             row = [
@@ -144,8 +151,8 @@ class ExcelExporter:
                 *[record.get(header, "") for header in other_headers],
             ]
             sheet.append(row)
+            row_index += 1
 
-            db_name = record.get("_db_name")
             if db_name == current_db:
                 sheet.row_dimensions[row_index].outline_level = 1
             current_db = db_name

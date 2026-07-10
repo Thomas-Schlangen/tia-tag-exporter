@@ -94,8 +94,9 @@ weitere Spalte dieselbe Ordnerebene einzeln ab (von der PLC-Wurzel bis zum
 direkten Elternordner — der DB selbst ist weder in "Pfad" noch in den
 Ordnerebene-Spalten enthalten, er steht in "DB-Name"). Zeilen desselben DBs
 sind per Gliederung (`outline_level`) gruppiert und lassen sich links über
-+/- ein- und ausklappen. Kopfzeile ist fett formatiert, die erste Zeile
-eingefroren, Spaltenbreiten werden automatisch an den Inhalt angepasst.
++/- ein- und ausklappen; zwischen den DB-Blöcken steht je eine Leerzeile.
+Kopfzeile ist fett formatiert, die erste Zeile eingefroren, Spaltenbreiten
+werden automatisch an den Inhalt angepasst.
 
 ## Logging
 
