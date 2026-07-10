@@ -84,7 +84,7 @@ Eine Excel-Datei mit einem Deckblatt und bis zu drei weiteren Arbeitsblättern:
 |---|---|
 | Deckblatt | Kunde, Projekt, Anlage, Erstellt von, Datum, Version, Bemerkung (zum Ausfüllen) |
 | PLC-Tags | Variablentabelle, Name, Datentyp, Adresse, Kommentar, Zugriffsebene |
-| HMI-Tags | Name, Datentyp, Verbindung, Kommentar |
+| HMI-Tags | Variablentabelle, Name, Datentyp, Verbindung, Kommentar |
 | DB-Variablen | Pfad, Ordnerebene 1..N, DB-Name, Variablenname, Datentyp, Offset, Kommentar, Initialwert |
 
 Im DB-Variablen-Sheet enthält Spalte A ("Pfad") den vollständigen Ordnerpfad

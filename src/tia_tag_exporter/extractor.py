@@ -109,6 +109,7 @@ class TagExtractor:
             return records
 
         for table in tag_tables:
+            table_name = getattr(table, "Name", None) or "Default"
             tags = getattr(table, "Tags", [])
             for tag in tags:
                 try:
@@ -119,6 +120,7 @@ class TagExtractor:
                     # echte Properties und werden korrekt gefüllt.
                     records.append(
                         {
+                            "Variablentabelle": table_name,
                             "Name": tag.Name,
                             "Datentyp": self._read_hmi_data_type(tag),
                             "Verbindung": self._read_hmi_connection(tag),
@@ -128,7 +130,7 @@ class TagExtractor:
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
                         "HMI-Tag konnte nicht gelesen werden (Tabelle '%s'): %s",
-                        getattr(table, "Name", "?"),
+                        table_name,
                         exc,
                     )
 
