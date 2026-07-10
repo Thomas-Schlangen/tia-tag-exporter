@@ -1,0 +1,18 @@
+tia:
+  version: "V21"
+  versions:
+    V19:
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V19/PublicAPI/V19/net48/Siemens.Engineering.Base.dll"
+    V20:
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V20/PublicAPI/V20/net48/Siemens.Engineering.Base.dll"
+    V21:
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V21/PublicAPI/V21/net48/Siemens.Engineering.Base.dll"
+export:
+  output_dir: "output"
+  include_plc_tags: true
+  include_hmi_tags: true
+  include_db_variables: true
+logging:
+  level: "INFO"
+  file: "export.log"
+  console: true

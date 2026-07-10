@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from types import TracebackType
 
-from loguru import logger
+logger = logging.getLogger(__name__)
 
 
 class TiaConnectionError(RuntimeError):
@@ -60,12 +61,12 @@ class TiaConnector:
             assembly_path = assembly_dir / f"{assembly_name}.dll"
             if not assembly_path.is_file():
                 logger.warning(
-                    "Optionale Openness-Assembly nicht gefunden, wird übersprungen: {}",
+                    "Optionale Openness-Assembly nicht gefunden, wird übersprungen: %s",
                     assembly_path,
                 )
                 continue
             clr.AddReference(assembly_name)
-            logger.debug("Assembly geladen: {}", assembly_path)
+            logger.debug("Assembly geladen: %s", assembly_path)
 
         self._clr_loaded = True
 
@@ -80,7 +81,7 @@ class TiaConnector:
         from Siemens.Engineering import TiaPortal, TiaPortalMode  # noqa: E402
         from System.IO import FileInfo  # noqa: E402
 
-        logger.info("Öffne TIA Portal (Headless) für Projekt: {}", project_path)
+        logger.info("Öffne TIA Portal (Headless) für Projekt: %s", project_path)
         self._tia_portal = TiaPortal(TiaPortalMode.WithoutUserInterface)
 
         try:
@@ -90,7 +91,7 @@ class TiaConnector:
             self.disconnect()
             raise TiaConnectionError(f"Projekt konnte nicht geöffnet werden: {exc}") from exc
 
-        logger.info("Projekt erfolgreich geöffnet: {}", self._project.Name)
+        logger.info("Projekt erfolgreich geöffnet: %s", self._project.Name)
         return self._project
 
     def disconnect(self) -> None:
@@ -99,14 +100,14 @@ class TiaConnector:
             try:
                 self._project.Close()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Fehler beim Schließen des Projekts: {}", exc)
+                logger.warning("Fehler beim Schließen des Projekts: %s", exc)
             self._project = None
 
         if self._tia_portal is not None:
             try:
                 self._tia_portal.Dispose()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Fehler beim Beenden von TIA Portal: {}", exc)
+                logger.warning("Fehler beim Beenden von TIA Portal: %s", exc)
             self._tia_portal = None
 
     def __enter__(self) -> "TiaConnector":

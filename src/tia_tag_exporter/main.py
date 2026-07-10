@@ -1,58 +1,31 @@
-"""CLI-Einstiegspunkt für den TIA Tag Exporter."""
+"""Einstiegspunkt für den TIA Tag Exporter — die GUI ist der einzige Weg, das Tool zu starten."""
 
 from __future__ import annotations
 
-import argparse
+import logging
 import sys
-import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from loguru import logger
+from config_loader import load_config
+from my_logger import setup_logger
 
-from tia_tag_exporter.connector import TiaConnectionError, TiaConnector
+from tia_tag_exporter.config_schema import AppConfig
+from tia_tag_exporter.connector import TiaConnector
 from tia_tag_exporter.exporter import ExcelExporter
 from tia_tag_exporter.extractor import TagExtractor
 
+logger = logging.getLogger(__name__)
+
+CONFIG_PATH = Path("config.yaml")
+
 
 def _configure_console_encoding() -> None:
-    """Erzwingt UTF-8 auf stdout/stderr, damit Umlaute in CLI-Texten (z. B. --help) auf
+    """Erzwingt UTF-8 auf stdout/stderr, damit Umlaute in Konsolenausgaben auf
     Windows nicht anhand der lokalen Codepage verstümmelt werden."""
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-
-
-def _configure_logging() -> None:
-    logger.remove()
-    logger.add(sys.stderr, level="INFO", format="<level>{level: <8}</level> | {message}")
-    logger.add("export.log", level="DEBUG", rotation="1 MB", retention=5)
-
-
-def _load_config(config_path: Path) -> dict[str, Any]:
-    if not config_path.is_file():
-        return {}
-    with config_path.open("rb") as handle:
-        return tomllib.load(handle)
-
-
-def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="tia-tag-exporter",
-        description="Exportiert PLC-, HMI- und DB-Tags aus einem TIA-Portal-Projekt nach Excel.",
-    )
-    parser.add_argument("--project", type=Path, help="Pfad zur TIA-Portal-Projektdatei (.ap21 o.ä.)")
-    parser.add_argument("--output", type=Path, help="Zielpfad der Excel-Ausgabedatei")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=Path("config.toml"),
-        help="Pfad zur Konfigurationsdatei (Standard: config.toml)",
-    )
-    parser.add_argument("--plc", action="store_true", help="PLC-Tags exportieren")
-    parser.add_argument("--hmi", action="store_true", help="HMI-Tags exportieren")
-    parser.add_argument("--db", action="store_true", help="DB-Variablen exportieren")
-    return parser.parse_args(argv)
 
 
 def _find_plc_software_list(project: Any) -> list[Any]:
@@ -110,38 +83,40 @@ def _find_data_blocks(plc_software: Any) -> list[Any]:
     return result
 
 
-def _run(args: argparse.Namespace) -> None:
-    config = _load_config(args.config)
-    tia_config = config.get("tia", {})
-    export_config = config.get("export", {})
+def run_export(
+    dll_path: str,
+    project_path: Path,
+    output_path: Path,
+    include_plc: bool,
+    include_hmi: bool,
+    include_db: bool,
+    progress: Callable[[str], None] | None = None,
+) -> None:
+    """Führt den vollständigen Export durch (Verbindung, Extraktion, Excel-Schreiben).
 
-    project_path = args.project or (Path(tia_config["project_path"]) if "project_path" in tia_config else None)
-    output_path = args.output or (Path(export_config["output_path"]) if "output_path" in export_config else None)
-    dll_path = tia_config.get("dll_path")
+    Wird von der GUI in einem separaten Thread aufgerufen; ``progress`` erhält
+    Statusmeldungen für die Anzeige in der Statuszeile.
+    """
 
-    if project_path is None:
-        raise SystemExit("Kein Projektpfad angegeben (--project oder config.toml [tia].project_path).")
-    if output_path is None:
-        raise SystemExit("Kein Ausgabepfad angegeben (--output oder config.toml [export].output_path).")
-    if not dll_path:
-        raise SystemExit("Kein DLL-Pfad angegeben (config.toml [tia].dll_path).")
-
-    include_plc = args.plc or export_config.get("include_plc_tags", False)
-    include_hmi = args.hmi or export_config.get("include_hmi_tags", False)
-    include_db = args.db or export_config.get("include_db_variables", False)
+    def report(message: str) -> None:
+        logger.info(message)
+        if progress is not None:
+            progress(message)
 
     if not (include_plc or include_hmi or include_db):
-        raise SystemExit("Nichts zu exportieren — bitte --plc, --hmi und/oder --db angeben.")
+        raise ValueError("Nichts zu exportieren — bitte mindestens eine Kategorie auswählen.")
 
     extractor = TagExtractor()
     data: dict[str, list[dict[str, Any]]] = {"plc_tags": [], "hmi_tags": [], "db_variables": []}
 
+    report("Verbinde mit TIA Portal ...")
     with TiaConnector(dll_path) as connector:
         project = connector.connect(project_path)
+        report(f"Projekt geöffnet: {project.Name}")
 
         if include_plc or include_db:
             plc_software_list = _find_plc_software_list(project)
-            logger.info("{} PLC-Software-Container gefunden", len(plc_software_list))
+            report(f"{len(plc_software_list)} PLC-Software-Container gefunden")
 
             for plc in plc_software_list:
                 if include_plc:
@@ -152,32 +127,43 @@ def _run(args: argparse.Namespace) -> None:
 
         if include_hmi:
             hmi_targets = _find_hmi_targets(project)
-            logger.info("{} HMI-Targets gefunden", len(hmi_targets))
+            report(f"{len(hmi_targets)} HMI-Targets gefunden")
             for hmi in hmi_targets:
                 data["hmi_tags"].extend(extractor.extract_hmi_tags(hmi))
 
+    report("Schreibe Excel-Datei ...")
     ExcelExporter().export(data, output_path)
+    report(f"Export erfolgreich abgeschlossen: {output_path}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def load_app_config(config_path: Path = CONFIG_PATH) -> AppConfig:
+    if not config_path.is_file():
+        raise SystemExit(
+            f"Konfigurationsdatei nicht gefunden: {config_path} "
+            f"({config_path.name} aus config.example.yaml erstellen und anpassen)"
+        )
+    return load_config(config_path, AppConfig)
+
+
+def main() -> int:
     _configure_console_encoding()
-    _configure_logging()
-    args = _parse_args(argv)
 
     try:
-        _run(args)
+        config = load_app_config()
     except SystemExit as exc:
-        logger.error(str(exc))
-        return 1
-    except TiaConnectionError as exc:
-        logger.error("Verbindung zu TIA Portal fehlgeschlagen: {}", exc)
+        print(str(exc), file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 — letzte Instanz gegen rohe Tracebacks für den Benutzer
-        logger.error("Unerwarteter Fehler: {}", exc)
-        logger.debug("Details:", exc_info=exc)
+        print(f"Fehler beim Laden der Konfiguration: {exc}", file=sys.stderr)
         return 1
 
-    logger.success("Export erfolgreich abgeschlossen.")
+    setup_logger(config.logging)
+    logger.info("Konfiguration geladen, starte GUI")
+
+    from tia_tag_exporter.gui import TiaTagExporterApp
+
+    app = TiaTagExporterApp(config, run_export)
+    app.mainloop()
     return 0
 
 

@@ -111,3 +111,12 @@ Außerdem zwei **echte, live verifizierte Grenzen der Openness API** gefunden
 - [ ] Prüfen, ob `Safety`-Datenbausteine (safety-relevante DBs) zusätzliche
       Behandlung benötigen — im Testprojekt wurden Safety-DBs (`DataToSafety`,
       `DataFromSafety` etc.) ohne Sonderbehandlung korrekt mit ausgelesen.
+- [ ] `TagExtractor._get_db_folder_path()` (Ordnerpfad eines DBs für die
+      neuen `_folder_path`/`_db_name`-Felder) ist bisher nur anhand der
+      dokumentierten Openness-Objektmodelle entworfen (Klettern der
+      `Parent`-Kette von `PlcBlockUserGroup`/`PlcBlockGroup` bis zur
+      `PlcSoftware`, danach der Gerätename aus deren `Parent`-`DeviceItem`),
+      aber noch **nicht live gegen ein Projekt mit mehrstufiger
+      DB-Ordnerstruktur verifiziert**. Insbesondere unklar: ob die Wurzel-
+      `PlcBlockGroup` (`plc.BlockGroup`) tatsächlich einen sinnvollen `Name`
+      wie "Programmbausteine" liefert oder eine leere Zeichenkette.

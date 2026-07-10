@@ -14,12 +14,12 @@ authors = [{ name = "Thomas Schlangen" }]
 dependencies = [
     "pythonnet>=3.0.3",
     "openpyxl>=3.1",
-    "loguru>=0.7",
-    "tomli>=2.0; python_version < '3.11'",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
 tia-tag-exporter = "tia_tag_exporter.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tia_tag_exporter"]
+packages = ["src/tia_tag_exporter", "src/config_loader", "src/my_logger"]

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from loguru import logger
+logger = logging.getLogger(__name__)
 
 PlcTagRecord = dict[str, Any]
 HmiTagRecord = dict[str, Any]
@@ -40,12 +41,12 @@ class TagExtractor:
                     )
                 except Exception as exc:  # noqa: BLE001 — Openness/.NET-Fehler pro Tag abfangen
                     logger.warning(
-                        "PLC-Tag konnte nicht gelesen werden (Tabelle '{}'): {}",
+                        "PLC-Tag konnte nicht gelesen werden (Tabelle '%s'): %s",
                         getattr(table, "Name", "?"),
                         exc,
                     )
 
-        logger.info("{} PLC-Tags extrahiert", len(records))
+        logger.info("%d PLC-Tags extrahiert", len(records))
         return records
 
     def extract_hmi_tags(self, hmi: Any) -> list[HmiTagRecord]:
@@ -75,7 +76,7 @@ class TagExtractor:
         tag_tables = list(self._iter_hmi_tag_tables(hmi))
 
         if not tag_tables:
-            logger.warning("HMI-Objekt '{}' besitzt keine Tag-Tabellen", getattr(hmi, "Name", "?"))
+            logger.warning("HMI-Objekt '%s' besitzt keine Tag-Tabellen", getattr(hmi, "Name", "?"))
             return records
 
         for table in tag_tables:
@@ -97,12 +98,12 @@ class TagExtractor:
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
-                        "HMI-Tag konnte nicht gelesen werden (Tabelle '{}'): {}",
+                        "HMI-Tag konnte nicht gelesen werden (Tabelle '%s'): %s",
                         getattr(table, "Name", "?"),
                         exc,
                     )
 
-        logger.info("{} HMI-Tags extrahiert", len(records))
+        logger.info("%d HMI-Tags extrahiert", len(records))
         return records
 
     def extract_db_variables(self, db: Any) -> list[DbVariableRecord]:
@@ -113,19 +114,63 @@ class TagExtractor:
                 (``Siemens.Engineering.SW.Blocks.DataBlock``, mit ``Interface``).
 
         Returns:
-            Liste von Dicts mit Name, Datentyp, Offset, Kommentar, Initialwert.
+            Liste von Dicts mit Name, Datentyp, Offset, Kommentar, Initialwert,
+            sowie ``_folder_path`` (Ordnerpfad des DBs) und ``_db_name``.
         """
         records: list[DbVariableRecord] = []
+        db_name = getattr(db, "Name", "?")
 
         try:
             members = db.Interface.Members
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Interface von DB '{}' nicht lesbar: {}", getattr(db, "Name", "?"), exc)
+            logger.warning("Interface von DB '%s' nicht lesbar: %s", db_name, exc)
             return records
 
         self._collect_members(members, prefix="", records=records)
-        logger.info("{} DB-Variablen extrahiert aus '{}'", len(records), getattr(db, "Name", "?"))
+
+        folder_path = self._get_db_folder_path(db)
+        for record in records:
+            record["_folder_path"] = folder_path
+            record["_db_name"] = db_name
+
+        logger.info("%d DB-Variablen extrahiert aus '%s'", len(records), db_name)
         return records
+
+    @staticmethod
+    def _get_db_folder_path(db: Any) -> list[str]:
+        """Ermittelt den Ordnerpfad eines DBs von der PLC-Wurzel bis zum direkten
+        Elternordner (der DB selbst ist nicht enthalten), z. B.
+        ``["PLC_1", "Programmbausteine", "Antriebe"]``.
+
+        Läuft die ``Parent``-Kette der Baustein-Ordner (``PlcBlockGroup``/
+        ``PlcBlockUserGroup``) rückwärts hoch, bis die ``PlcSoftware`` erreicht
+        wird, und hängt davor den Namen des zugehörigen PLC-Geräts an (dessen
+        ``DeviceItem`` ist der ``Parent`` der ``PlcSoftware``). Openness bildet
+        das nicht als einheitliche Klassenhierarchie ab — deshalb wird über
+        generische ``Name``/``Parent``-Attribute traversiert statt über
+        Downcasts auf konkrete Gruppen-Typen. Noch nicht live gegen ein Projekt
+        mit tiefer Ordnerstruktur verifiziert (siehe docs/setup-notes.md,
+        Offene Punkte).
+        """
+        from Siemens.Engineering.SW import PlcSoftware
+
+        segments: list[str] = []
+        node = getattr(db, "Parent", None)
+
+        while node is not None and not isinstance(node, PlcSoftware):
+            name = getattr(node, "Name", None)
+            if name:
+                segments.append(name)
+            node = getattr(node, "Parent", None)
+
+        if node is not None:
+            device_item = getattr(node, "Parent", None)
+            plc_name = getattr(device_item, "Name", None)
+            if plc_name:
+                segments.append(plc_name)
+
+        segments.reverse()
+        return segments
 
     def _collect_members(self, members: Any, prefix: str, records: list[DbVariableRecord]) -> None:
         for member in members:
@@ -145,7 +190,7 @@ class TagExtractor:
                     }
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("DB-Variable '{}' konnte nicht gelesen werden: {}", full_name, exc)
+                logger.warning("DB-Variable '%s' konnte nicht gelesen werden: %s", full_name, exc)
                 continue
 
             nested = self._get_nested_members(member)

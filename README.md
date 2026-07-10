@@ -18,63 +18,76 @@ pip install -e .
 
 ## Konfiguration
 
-1. `config.example.toml` nach `config.toml` kopieren.
+1. `config.example.yaml` nach `config.yaml` kopieren.
 2. Pfade anpassen:
 
-```toml
-[tia]
-project_path = "C:/Users/thomas/Documents/TIA-Projekte/MeinProjekt.ap21"
-dll_path = "C:/Program Files/Siemens/Automation/Portal V21/PublicAPI/V21/Siemens.Engineering.dll"
-
-[export]
-# Relativ zum Arbeitsverzeichnis; landet standardmäßig im mitgelieferten output/-Ordner.
-output_path = "output/tag-export.xlsx"
-include_plc_tags = true
-include_hmi_tags = true
-include_db_variables = true
+```yaml
+tia:
+  version: "V21"  # Vorauswahl im GUI-Dropdown
+  versions:
+    V19:
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V19/PublicAPI/V19/net48/Siemens.Engineering.Base.dll"
+    V20:
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V20/PublicAPI/V20/net48/Siemens.Engineering.Base.dll"
+    V21:
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V21/PublicAPI/V21/net48/Siemens.Engineering.Base.dll"
+export:
+  output_dir: "output"
+  include_plc_tags: true
+  include_hmi_tags: true
+  include_db_variables: true
+logging:
+  level: "INFO"
+  file: "export.log"
+  console: true
 ```
 
-`config.toml` wird von `.gitignore` ausgeschlossen, da Projektpfade
-Environment-spezifisch sind.
+`config.yaml` wird von `.gitignore` ausgeschlossen, da Projektpfade
+Environment-spezifisch sind. Die Datei wird per
+[`config_loader`](src/config_loader) gegen ein Pydantic-v2-Schema
+(`src/tia_tag_exporter/config_schema.py`) validiert.
 
 ## Verwendung
 
 ```bash
-# Nutzt config.toml im aktuellen Verzeichnis
-tia-tag-exporter --plc --hmi --db
-
-# Explizite Pfade, unabhängig von config.toml
-tia-tag-exporter --project "D:/Projekte/Anlage1.ap21" --output "D:/Export/tags.xlsx" --plc --db
-
-# Andere Konfigurationsdatei verwenden
-tia-tag-exporter --config "D:/Konfigurationen/anlage1.toml" --plc
+tia-tag-exporter
 ```
 
-Ohne `--plc`/`--hmi`/`--db` wird auf die Flags aus `config.toml`
-(`[export] include_*`) zurückgegriffen. Wird keines davon aktiviert, bricht
-das Tool mit einer Fehlermeldung ab, statt eine leere Datei zu erzeugen.
+Startet ein GUI-Fenster (Tkinter) — es gibt keinen CLI-Modus mehr. Im Fenster:
+
+1. TIA-Version wählen (Dropdown, vorausgewählt aus `config.yaml`).
+2. TIA-Projekt auswählen (`.ap19`/`.ap20`/`.ap21`).
+3. Ausgabeordner wählen (vorausgewählt aus `config.yaml`).
+4. Gewünschte Kategorien (PLC-Tags, HMI-Tags, DB-Variablen) ankreuzen.
+5. "Start Export" klicken — der Export läuft in einem Hintergrund-Thread,
+   die Statuszeile unten zeigt Fortschritt und Fehler an.
 
 **Hinweis:** TIA Portal muss zum Export nicht geöffnet sein — der Zugriff
 erfolgt headless über `TiaPortalMode.WithoutUserInterface`.
 
 ## Ausgabe
 
-Eine Excel-Datei mit bis zu drei Arbeitsblättern:
+Eine Excel-Datei mit einem Deckblatt und bis zu drei weiteren Arbeitsblättern:
 
 | Sheet | Spalten |
 |---|---|
+| Deckblatt | Kunde, Projekt, Anlage, Erstellt von, Datum, Version, Bemerkung (zum Ausfüllen) |
 | PLC-Tags | Name, Datentyp, Adresse, Kommentar, Zugriffsebene |
 | HMI-Tags | Name, Datentyp, Verbindung, Kommentar |
-| DB-Variablen | Name, Datentyp, Offset, Kommentar, Initialwert |
+| DB-Variablen | Ordnerebene 1..N, DB-Name, Variablenname, Datentyp, Offset, Kommentar, Initialwert |
 
-Kopfzeile ist fett formatiert, die erste Zeile eingefroren, Spaltenbreiten
-werden automatisch an den Inhalt angepasst.
+Im DB-Variablen-Sheet bildet je eine Spalte eine Ordnerebene des
+Datenbausteins ab (von der PLC-Wurzel bis zum direkten Elternordner); Zeilen
+desselben DBs sind per Gliederung (`outline_level`) gruppiert und lassen sich
+links über +/- ein- und ausklappen. Kopfzeile ist fett formatiert, die erste
+Zeile eingefroren, Spaltenbreiten werden automatisch an den Inhalt angepasst.
 
 ## Logging
 
-Alle Läufe werden über [`loguru`](https://github.com/Delgan/loguru) protokolliert:
-- Konsole: `INFO` und höher
-- Datei `export.log` (im Arbeitsverzeichnis, rotiert bei 1 MB): `DEBUG` und höher
+Alle Läufe werden über [`my_logger`](src/my_logger) (stdlib `logging`)
+protokolliert, konfiguriert über `config.yaml` (`[logging]`):
+- Konsole: Level aus `logging.level`
+- Datei `export.log` (im Arbeitsverzeichnis): dasselbe Level
 
 Fehler beim Lesen einzelner Tags brechen den Export nicht ab — sie werden als
 Warnung geloggt, der Export läuft mit den übrigen Tags weiter.
@@ -83,15 +96,20 @@ Warnung geloggt, der Export läuft mit den übrigen Tags weiter.
 
 ```
 tia-tag-exporter/
-├── src/tia_tag_exporter/
-│   ├── main.py          # CLI-Einstiegspunkt
-│   ├── connector.py     # TIA Openness Verbindung (pythonnet)
-│   ├── extractor.py     # Tag-Extraktion (PLC/HMI/DB)
-│   └── exporter.py      # Excel-Export (openpyxl)
+├── src/
+│   ├── tia_tag_exporter/
+│   │   ├── main.py          # Einstiegspunkt: Config laden, Logger init, GUI starten
+│   │   ├── gui.py           # Tkinter-Oberfläche
+│   │   ├── config_schema.py # Pydantic-v2-Schema für config.yaml
+│   │   ├── connector.py     # TIA Openness Verbindung (pythonnet)
+│   │   ├── extractor.py     # Tag-Extraktion (PLC/HMI/DB)
+│   │   └── exporter.py      # Excel-Export (openpyxl)
+│   ├── config_loader/       # Wiederverwendbare YAML/JSON-Config-Bibliothek
+│   └── my_logger/           # Wiederverwendbare Logging-Bibliothek (stdlib logging)
 ├── tests/
 ├── docs/
 │   └── setup-notes.md   # DLL-Suchergebnis & Versionshinweise
-└── config.example.toml
+└── config.example.yaml
 ```
 
 ## Bekannte Einschränkungen

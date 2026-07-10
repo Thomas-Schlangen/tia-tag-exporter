@@ -17,10 +17,11 @@ Thumbs.db
 desktop.ini
 
 # Projekt-spezifisch
+config.yaml
 config.toml
 export.log
 *.xlsx
-!config.example.toml
+!config.example.yaml
 
 # output-Ordner selbst wird versioniert, sein Inhalt nicht
 output/*
