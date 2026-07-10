@@ -55,10 +55,12 @@ class TagExtractor:
         tag_table_group = plc.TagTableGroup
 
         for table in self._iter_tag_tables(tag_table_group):
+            table_name = getattr(table, "Name", None) or "Default"
             for tag in table.Tags:
                 try:
                     records.append(
                         {
+                            "Variablentabelle": table_name,
                             "Name": tag.Name,
                             "Datentyp": tag.DataTypeName,
                             "Adresse": tag.LogicalAddress,
@@ -69,7 +71,7 @@ class TagExtractor:
                 except Exception as exc:  # noqa: BLE001 — Openness/.NET-Fehler pro Tag abfangen
                     logger.warning(
                         "PLC-Tag konnte nicht gelesen werden (Tabelle '%s'): %s",
-                        getattr(table, "Name", "?"),
+                        table_name,
                         exc,
                     )
 

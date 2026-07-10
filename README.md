@@ -83,7 +83,7 @@ Eine Excel-Datei mit einem Deckblatt und bis zu drei weiteren Arbeitsblättern:
 | Sheet | Spalten |
 |---|---|
 | Deckblatt | Kunde, Projekt, Anlage, Erstellt von, Datum, Version, Bemerkung (zum Ausfüllen) |
-| PLC-Tags | Name, Datentyp, Adresse, Kommentar, Zugriffsebene |
+| PLC-Tags | Variablentabelle, Name, Datentyp, Adresse, Kommentar, Zugriffsebene |
 | HMI-Tags | Name, Datentyp, Verbindung, Kommentar |
 | DB-Variablen | Pfad, Ordnerebene 1..N, DB-Name, Variablenname, Datentyp, Offset, Kommentar, Initialwert |
 
