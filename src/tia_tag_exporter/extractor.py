@@ -127,19 +127,25 @@ class TagExtractor:
 
         for table in tag_tables:
             table_name = getattr(table, "Name", None) or "Default"
-            controller_tags = self._read_controller_tags(table)
+            tag_links = self._read_hmi_tag_links(table)
             tags = getattr(table, "Tags", [])
             for tag in tags:
                 try:
                     # Bei WinCC Advanced/Comfort (Siemens.Engineering.Hmi.Tag.Tag)
                     # exponiert Openness selbst ausschließlich "Name" — Datentyp/
-                    # Verbindung/Kommentar sind über GetAttribute/Property nicht
-                    # abrufbar (live verifiziert, siehe docs/setup-notes.md). Der
-                    # eigene Kommentar kommt daher aus der Projekttexte-Kategorie
-                    # "<HMI comment>" (siehe ProjectTextComments.get_hmi_comment).
-                    # Bei WinCC Unified ist "Comment" eine echte Property und wird
-                    # direkt gelesen, ohne den Projekttexte-Umweg.
-                    controller_tag = controller_tags.get(tag.Name)
+                    # Verbindung/Kommentar/PLC-Verknüpfung sind über
+                    # GetAttribute/Property nicht abrufbar (live verifiziert,
+                    # siehe docs/setup-notes.md). Datentyp/Verbindung/ControllerTag
+                    # kommen daher aus dem LinkList-Export (siehe
+                    # _read_hmi_tag_links), der eigene Kommentar aus der
+                    # Projekttexte-Kategorie "<HMI comment>" (siehe
+                    # ProjectTextComments.get_hmi_comment). Bei WinCC Unified sind
+                    # Datentyp/Verbindung/Comment echte Properties und werden
+                    # direkt gelesen, ohne diese Umwege (bevorzugt, falls vorhanden).
+                    links = tag_links.get(tag.Name, {})
+                    controller_tag = links.get("ControllerTag")
+                    data_type = self._read_hmi_data_type(tag) or links.get("DataType") or ""
+                    connection = self._read_hmi_connection(tag) or links.get("Connection") or ""
                     comment = self._read_comment(self._get_value(tag, "Comment"))
                     if not comment and project_texts is not None and hmi_device_name is not None:
                         comment = project_texts.get_hmi_comment(hmi_device_name, table_name, tag.Name)
@@ -152,8 +158,8 @@ class TagExtractor:
                         {
                             "Variablentabelle": table_name,
                             "Name": tag.Name,
-                            "Datentyp": self._read_hmi_data_type(tag),
-                            "Verbindung": self._read_hmi_connection(tag),
+                            "Datentyp": data_type,
+                            "Verbindung": connection,
                             "PLC-Variable": controller_tag or "",
                             "Kommentar": comment or "",
                             "Quellkommentar": quellkommentar or "",
@@ -205,7 +211,7 @@ class TagExtractor:
         ("Quellkommentar"), kein Ersatzwert für die Spalte "Kommentar".
 
         ``controller_tag`` im Format ``DB.Member[.Sub...]`` (siehe
-        ``_read_controller_tags``), Lookup über dieselbe Projekttexte-
+        ``_read_hmi_tag_links``), Lookup über dieselbe Projekttexte-
         Nachschlage-Tabelle wie die DB-Variablen-Kommentare. Ohne PLC-Namen im Schlüssel
         (siehe ``ProjectTextComments.get_by_db_member``), da für ein HMI-Tag
         an dieser Stelle nicht bekannt ist, zu welcher PLC die Ziel-DB gehört.
@@ -221,25 +227,29 @@ class TagExtractor:
         )
 
     @staticmethod
-    def _read_controller_tags(table: Any) -> dict[str, str]:
-        """Ermittelt, mit welcher PLC-Variable jedes Tag einer HMI-Tag-Tabelle
-        verknüpft ist (``{Tag-Name: PLC-Variable}``).
+    def _read_hmi_tag_links(table: Any) -> dict[str, dict[str, str]]:
+        """Ermittelt für jedes Tag einer HMI-Tag-Tabelle die Werte aus dessen
+        ``LinkList`` im Openness-Export (``{Tag-Name: {Link-Name: Wert}}``),
+        u. a. ``ControllerTag`` (verknüpfte PLC-Variable), ``DataType`` und
+        ``Connection`` (HMI-Verbindungsname).
 
-        Die Verknüpfung ist über das Openness-Objektmodell selbst nicht
+        Diese Werte sind über das Openness-Objektmodell selbst nicht
         zugänglich — weder ``Siemens.Engineering.Hmi.Tag.Tag`` noch die
-        generische ``GetAttribute``-Schnittstelle kennen ein "Connection"-
-        oder "Address"-Attribut dafür (live erschöpfend verifiziert). Sie
-        taucht aber im XML von ``HmiTagTable.Export()`` auf: jedes Tag-Element
-        enthält dort einen ``<LinkList><ControllerTag><Name>`` -Verweis auf
-        die gebundene PLC-Variable (fehlt komplett bei rein internen,
-        nicht mit der PLC verknüpften Tags). Export erfolgt einmal pro
+        generische ``GetAttribute``-Schnittstelle kennen dafür ein Attribut
+        (live erschöpfend verifiziert, u. a. ``GetAttributeInfos()`` liefert
+        nur ``["Name"]``). Sie tauchen aber im XML von ``HmiTagTable.Export()``
+        auf: jedes Tag-Element hat eine ``<LinkList>`` mit Kindelementen wie
+        ``<ControllerTag TargetID="@OpenLink"><Name>...</Name></ControllerTag>``.
+        ``DataType`` ist dort bei jedem Tag vorhanden (auch rein internen,
+        nicht mit der PLC verknüpften), ``ControllerTag``/``Connection``
+        fehlen komplett bei solchen internen Tags. Export erfolgt einmal pro
         Tabelle (nicht pro Tag) und wird in einem Temp-Verzeichnis
         zwischengelagert.
 
         Schlägt der Export fehl (z. B. weil ein Tabellentyp ``Export()`` nicht
-        unterstützt), wird ein leeres Dict zurückgegeben — "PLC-Variable"
-        bleibt dann für diese Tabelle leer, der restliche Export läuft
-        unbeeinträchtigt weiter.
+        unterstützt), wird ein leeres Dict zurückgegeben — die betroffenen
+        Spalten bleiben dann für diese Tabelle leer, der restliche Export
+        läuft unbeeinträchtigt weiter.
         """
         try:
             from System.IO import FileInfo
@@ -249,7 +259,7 @@ class TagExtractor:
                 export_path = Path(tmp_dir) / "hmi_table.xml"
                 table.Export(FileInfo(str(export_path)), ExportOptions.WithDefaults)
 
-                result: dict[str, str] = {}
+                result: dict[str, dict[str, str]] = {}
                 root = ET.parse(export_path).getroot()
                 for elem in root.iter():
                     attribute_list = elem.find("AttributeList")
@@ -257,17 +267,20 @@ class TagExtractor:
                     if attribute_list is None or link_list is None:
                         continue
                     name_elem = attribute_list.find("Name")
-                    controller_tag_elem = link_list.find("ControllerTag")
-                    if name_elem is None or controller_tag_elem is None:
+                    if name_elem is None or not name_elem.text:
                         continue
-                    controller_name_elem = controller_tag_elem.find("Name")
-                    if controller_name_elem is None or not controller_name_elem.text:
-                        continue
-                    result[name_elem.text] = controller_name_elem.text
+
+                    links: dict[str, str] = {}
+                    for link_elem in link_list:
+                        link_name_elem = link_elem.find("Name")
+                        if link_name_elem is not None and link_name_elem.text:
+                            links[link_elem.tag] = link_name_elem.text
+                    if links:
+                        result[name_elem.text] = links
                 return result
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "PLC-Verknüpfung für Tag-Tabelle '%s' konnte nicht gelesen werden: %s",
+                "Tag-Verknüpfungen für Tag-Tabelle '%s' konnten nicht gelesen werden: %s",
                 getattr(table, "Name", "?"),
                 exc,
             )

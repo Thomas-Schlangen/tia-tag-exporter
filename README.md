@@ -151,18 +151,19 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
   (nicht über eine direkte Objekt-Referenz, sondern per Pfad-String aus dem
   Export — der PLC-Name macht den Schlüssel projektweit eindeutig, siehe
   Docstring der Klasse).
-- **HMI-Tags bei WinCC Advanced/Comfort: `Datentyp` und `Verbindung` bleiben
-  leer.** Die Openness API stellt diese Werte für klassische
-  Comfort-/Advanced-Tags schlicht nicht bereit (weder als Property noch über
-  `GetAttribute`) — nur `Name` ist direkt abrufbar.
-- **HMI-Tags: `PLC-Variable` kommt nicht aus dem Tag-Objekt selbst.** Analog
-  zu den DB-Variablen-Kommentaren gibt es auch für die Verknüpfung zur
-  gebundenen PLC-Variable keine Property oder kein Attribut auf
-  `Hmi.Tag.Tag` (live erschöpfend verifiziert). Sie steckt aber im XML von
-  `HmiTagTable.Export()` (`<LinkList><ControllerTag><Name>`) — der Export
-  läuft einmal pro Tag-Tabelle (nicht pro Tag) und wird intern geparst.
-  Rein interne, nicht mit der PLC verknüpfte HMI-Tags bleiben dabei
-  korrekterweise leer (kein `ControllerTag`-Element im Export).
+- **HMI-Tags bei WinCC Advanced/Comfort: `Datentyp`, `Verbindung` und
+  `PLC-Variable` kommen nicht aus dem Tag-Objekt selbst.** Weder
+  `Siemens.Engineering.Hmi.Tag.Tag` noch die generische
+  `GetAttribute`-Schnittstelle kennen dafür ein Attribut (live erschöpfend
+  verifiziert, `GetAttributeInfos()` liefert nur `["Name"]`). Alle drei
+  stecken aber im XML von `HmiTagTable.Export()`: jedes Tag-Element hat eine
+  `<LinkList>` mit u. a. `<DataType>`, `<Connection>` und `<ControllerTag>`
+  (jeweils `<Name>`). `DataType` ist dort bei jedem Tag vorhanden (auch rein
+  internen), `Connection`/`ControllerTag` fehlen komplett bei internen, nicht
+  mit der PLC verknüpften Tags. Der Export läuft einmal pro Tag-Tabelle
+  (nicht pro Tag) und wird intern geparst. Bei WinCC Unified sind
+  `DataType`/`Connection` echte Properties und werden bevorzugt direkt
+  gelesen, ohne diesen Umweg.
 - **HMI-Tags: `Kommentar` kommt bei WinCC Advanced/Comfort ebenfalls aus den
   Projekttexten, nicht aus dem Tag-Objekt.** Der eigene Kommentar eines
   Advanced/Comfort-Tags ist über Openness nicht abrufbar, existiert aber in
