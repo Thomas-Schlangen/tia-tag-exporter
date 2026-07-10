@@ -91,7 +91,7 @@ Abschnitt "Bekannte Einschränkungen".
 
 ## Live-Test gegen reales Projekt (Stand: 2026-07-09)
 
-Getestet gegen `S7T0160` (Pakeeza, 183 DBs, 2 HMI-Targets, alles TIA V21).
+Getestet gegen `xxxxx` (Kunde, 183 DBs, 2 HMI-Targets, alles TIA V21).
 Ergebnis: **435 PLC-Tags**, **~104.000 DB-Variablen**, **1085 HMI-Tags**
 korrekt exportiert. Dabei zwei zusätzliche Bugs gefunden und behoben:
 
@@ -131,7 +131,8 @@ Außerdem zwei **echte, live verifizierte Grenzen der Openness API** gefunden
       nur per Reflection (Typsignaturen: echte Properties `DataType`,
       `Connection`, `Comment` vorhanden) verifiziert, aber noch nicht live
       gegen ein Projekt mit tatsächlichem WinCC-Unified-Gerät getestet.
-      Kandidat vorhanden: `D:\Daten\Tmp\ProjektNilay\WinCCUnified_V21\`.
+      Ein lokaler Testprojekt-Kandidat mit WinCC-Unified-Gerät ist vorhanden
+      (siehe lokale Notizen, Pfad hier bewusst nicht dokumentiert).
 - [ ] `pythonnet` benötigt eine passende .NET-Runtime (i. d. R. .NET Framework
       4.8 — alle V21-Assemblies sind `net48`-Builds); auf Kompatibilität mit
       der installierten Python-Version prüfen.
