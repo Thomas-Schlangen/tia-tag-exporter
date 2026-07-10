@@ -90,16 +90,43 @@ class ExcelExporter:
         sheet.column_dimensions["B"].width = 45
 
     @staticmethod
+    def _write_row(sheet: Worksheet, row_index: int, values: list[Any]) -> None:
+        """Schreibt eine Zeile zellenweise über ``sheet.cell()`` statt
+        ``sheet.append()``.
+
+        ``sheet.cell(row=, column=, value=)`` gibt die geschriebene Zelle
+        direkt zurück (O(1)-Dict-Zugriff) — so lässt sich der
+        Formel-Schutz (siehe unten) ohne zusätzlichen Row-Lookup anwenden.
+        Eine frühere Version rief dafür nach ``sheet.append()`` zusätzlich
+        ``sheet[row_index]`` auf; bei Sheets mit zehntausenden Zeilen
+        (DB-Variablen) führte das live reproduzierbar zu einem
+        Performance-Hänger (mehrere Minuten statt Sekunden für ~50.000
+        Zeilen) und wurde deshalb durch dieses Vorgehen ersetzt.
+
+        openpyxl interpretiert außerdem jeden String-Wert, der mit ``=``
+        beginnt, automatisch als Excel-Formel (``cell.data_type`` wird
+        ``"f"`` statt ``"s"``). Betrifft z. B. DB-Variablen-Kommentare aus
+        TIA wie ``"=true if more than one error is present"`` — Excel
+        würde beim Öffnen versuchen, das als Formel auszuwerten, statt den
+        Text anzuzeigen (live gefunden). Deshalb wird der Datentyp für
+        betroffene Zellen hier direkt auf String erzwungen.
+        """
+        for col_index, value in enumerate(values, start=1):
+            cell = sheet.cell(row=row_index, column=col_index, value=value)
+            if isinstance(value, str) and value.startswith("="):
+                cell.data_type = "s"
+
+    @staticmethod
     def _write_sheet(sheet: Worksheet, records: list[dict[str, Any]]) -> None:
         headers = list(records[0].keys())
-        sheet.append(headers)
+        ExcelExporter._write_row(sheet, 1, headers)
 
         header_font = Font(bold=True)
         for cell in sheet[1]:
             cell.font = header_font
 
-        for record in records:
-            sheet.append([record.get(header, "") for header in headers])
+        for row_index, record in enumerate(records, start=2):
+            ExcelExporter._write_row(sheet, row_index, [record.get(header, "") for header in headers])
 
         sheet.freeze_panes = "A2"
 
@@ -125,7 +152,7 @@ class ExcelExporter:
             header for header in records[0].keys() if header not in ("Name", "_folder_path", "_db_name")
         ]
         headers = ["Pfad", *folder_headers, "DB-Name", "Variablenname", *other_headers]
-        sheet.append(headers)
+        ExcelExporter._write_row(sheet, 1, headers)
 
         header_font = Font(bold=True)
         for cell in sheet[1]:
@@ -138,11 +165,11 @@ class ExcelExporter:
         for record in records:
             db_name = record.get("_db_name")
             if current_db is not None and db_name != current_db:
-                sheet.append([])
-                row_index += 1
+                row_index += 1  # Leerzeile zwischen DB-Blöcken (Zelle bleibt ungeschrieben = leer)
 
             folder_path = record.get("_folder_path", [])
             folder_cells = [folder_path[i] if i < len(folder_path) else "" for i in range(max_depth)]
+            row_index += 1
             row = [
                 " - ".join(folder_path),
                 *folder_cells,
@@ -150,8 +177,7 @@ class ExcelExporter:
                 record.get("Name", ""),
                 *[record.get(header, "") for header in other_headers],
             ]
-            sheet.append(row)
-            row_index += 1
+            ExcelExporter._write_row(sheet, row_index, row)
 
             if db_name == current_db:
                 sheet.row_dimensions[row_index].outline_level = 1
