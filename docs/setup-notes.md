@@ -179,12 +179,16 @@ Außerdem zwei **echte, live verifizierte Grenzen der Openness API** gefunden
 - [ ] Prüfen, ob `Safety`-Datenbausteine (safety-relevante DBs) zusätzliche
       Behandlung benötigen — im Testprojekt wurden Safety-DBs (`DataToSafety`,
       `DataFromSafety` etc.) ohne Sonderbehandlung korrekt mit ausgelesen.
-- [ ] `TagExtractor._get_db_folder_path()` (Ordnerpfad eines DBs für die
-      neuen `_folder_path`/`_db_name`-Felder) ist bisher nur anhand der
-      dokumentierten Openness-Objektmodelle entworfen (Klettern der
-      `Parent`-Kette von `PlcBlockUserGroup`/`PlcBlockGroup` bis zur
-      `PlcSoftware`, danach der Gerätename aus deren `Parent`-`DeviceItem`),
-      aber noch **nicht live gegen ein Projekt mit mehrstufiger
-      DB-Ordnerstruktur verifiziert**. Insbesondere unklar: ob die Wurzel-
-      `PlcBlockGroup` (`plc.BlockGroup`) tatsächlich einen sinnvollen `Name`
-      wie "Programmbausteine" liefert oder eine leere Zeichenkette.
+- [x] `TagExtractor._get_db_folder_path()` war live komplett kaputt (lieferte
+      immer eine leere Liste, daher blieb die spätere "Pfad"-Spalte im Excel
+      leer) — behoben am 2026-07-10, siehe Docstring der Methode. Zwei
+      Ursachen, beide durch dasselbe pythonnet-Verhalten: `db.Parent` liefert
+      Objekte, die pythonnet nur als generisches `IEngineeringObject`-Interface
+      typisiert, nicht als konkrete Klasse. Dadurch war (a)
+      `getattr(node, "Name", None)` immer `None` (Fix: `GetAttribute("Name")`)
+      und (b) `isinstance(node, PlcSoftware)` hat nie gematcht, wodurch die
+      Schleife bis zur `TiaPortal`-Wurzel gelaufen wäre (Fix:
+      `node.Equals(plc.BlockGroup)` als Abbruchbedingung — dafür braucht
+      `_get_db_folder_path()` jetzt zusätzlich das `plc`-Objekt als Parameter).
+      Live gegen ein reales Projekt mit mehrstufiger Ordnerstruktur verifiziert
+      (49.452 DB-Variablen-Zeilen, 0 mit leerem Pfad).

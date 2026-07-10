@@ -133,12 +133,14 @@ class TagExtractor:
         logger.info("%d HMI-Tags extrahiert", len(records))
         return records
 
-    def extract_db_variables(self, db: Any) -> list[DbVariableRecord]:
+    def extract_db_variables(self, db: Any, plc: Any) -> list[DbVariableRecord]:
         """Extrahiert alle Variablen aus einem Datenbaustein (rekursiv über Structs).
 
         Args:
             db: Ein ``PlcBlock``-Objekt vom Typ Datenbaustein
                 (``Siemens.Engineering.SW.Blocks.DataBlock``, mit ``Interface``).
+            plc: Das ``PlcSoftware``-Objekt, dem ``db`` angehört (für den
+                Ordnerpfad, siehe ``_get_db_folder_path``).
 
         Returns:
             Liste von Dicts mit Name, Datentyp, Offset, Kommentar, Initialwert,
@@ -181,7 +183,7 @@ class TagExtractor:
                     exc,
                 )
 
-        folder_path = self._get_db_folder_path(db)
+        folder_path = self._get_db_folder_path(db, plc)
         for record in records:
             record["_folder_path"] = folder_path
             record["_db_name"] = db_name
@@ -189,38 +191,57 @@ class TagExtractor:
         logger.info("%d DB-Variablen extrahiert aus '%s'", len(records), db_name)
         return records
 
-    @staticmethod
-    def _get_db_folder_path(db: Any) -> list[str]:
+    @classmethod
+    def _get_db_folder_path(cls, db: Any, plc: Any) -> list[str]:
         """Ermittelt den Ordnerpfad eines DBs von der PLC-Wurzel bis zum direkten
         Elternordner (der DB selbst ist nicht enthalten), z. B.
         ``["PLC_1", "Programmbausteine", "Antriebe"]``.
 
         Läuft die ``Parent``-Kette der Baustein-Ordner (``PlcBlockGroup``/
-        ``PlcBlockUserGroup``) rückwärts hoch, bis die ``PlcSoftware`` erreicht
-        wird, und hängt davor den Namen des zugehörigen PLC-Geräts an (dessen
-        ``DeviceItem`` ist der ``Parent`` der ``PlcSoftware``). Openness bildet
-        das nicht als einheitliche Klassenhierarchie ab — deshalb wird über
-        generische ``Name``/``Parent``-Attribute traversiert statt über
-        Downcasts auf konkrete Gruppen-Typen. Noch nicht live gegen ein Projekt
-        mit tiefer Ordnerstruktur verifiziert (siehe docs/setup-notes.md,
-        Offene Punkte).
-        """
-        from Siemens.Engineering.SW import PlcSoftware
+        ``PlcBlockUserGroup``) hoch, bis sie beim Wurzel-``PlcBlockGroup``
+        (``plc.BlockGroup``, per ``.Equals()`` erkannt) ankommt, und hängt
+        davor ``plc.Name`` an.
 
+        Live gegen ein reales Projekt verifiziert — zwei Annahmen der
+        ursprünglichen Implementierung waren falsch, beide durch dasselbe
+        pythonnet-Verhalten verursacht: ``db.Parent`` (und jeder weitere
+        ``.Parent``) liefert Objekte, die pythonnet nur als generisches
+        ``IEngineeringObject``-Interface typisiert — nicht als ihre konkrete
+        Klasse. Dadurch (a) war ``getattr(node, "Name", None)`` immer
+        ``None`` (die ``Name``-Property existiert auf dem konkreten Typ, ist
+        über das Interface aber unsichtbar — Fix: ``GetAttribute("Name")``,
+        das das Interface tatsächlich deklariert) und (b)
+        ``isinstance(node, PlcSoftware)`` hat nie gematcht, wodurch die
+        Schleife am ``PlcSoftware``-Knoten vorbei bis hoch zur
+        ``TiaPortal``-Wurzel gelaufen wäre (Fix: ``node.Equals(plc.BlockGroup)``
+        als Abbruchbedingung, da wir den Zielknoten bereits referenziell
+        kennen, statt ihn per Typprüfung zu erkennen).
+        """
+        root_group = getattr(plc, "BlockGroup", None)
         segments: list[str] = []
         node = getattr(db, "Parent", None)
 
-        while node is not None and not isinstance(node, PlcSoftware):
-            name = getattr(node, "Name", None)
+        depth = 0
+        max_depth = 50  # Sicherheitsnetz falls root_group nie erreicht wird
+        while node is not None and depth < max_depth:
+            name = cls._get_value(node, "Name")
             if name:
                 segments.append(name)
+            if root_group is not None and node.Equals(root_group):
+                break
             node = getattr(node, "Parent", None)
+            depth += 1
+        else:
+            if depth >= max_depth:
+                logger.warning(
+                    "DB-Ordnerpfad: Wurzel-BlockGroup nach %d Ebenen nicht erreicht, "
+                    "Pfad könnte unvollständig/zu lang sein.",
+                    max_depth,
+                )
 
-        if node is not None:
-            device_item = getattr(node, "Parent", None)
-            plc_name = getattr(device_item, "Name", None)
-            if plc_name:
-                segments.append(plc_name)
+        plc_name = cls._get_value(plc, "Name")
+        if plc_name:
+            segments.append(plc_name)
 
         segments.reverse()
         return segments

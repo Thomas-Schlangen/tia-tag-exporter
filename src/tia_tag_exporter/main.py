@@ -171,7 +171,7 @@ def run_export(
                                 db_key = (plc_name, getattr(db, "Name", "?"))
                                 if db_key in done_dbs:
                                     continue
-                                data["db_variables"].extend(extractor.extract_db_variables(db))
+                                data["db_variables"].extend(extractor.extract_db_variables(db, plc))
                                 done_dbs.add(db_key)
 
                 if include_hmi:
