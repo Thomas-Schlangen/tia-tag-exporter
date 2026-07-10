@@ -85,18 +85,18 @@ Eine Excel-Datei mit einem Deckblatt und bis zu drei weiteren Arbeitsblättern:
 | Deckblatt | Kunde, Projekt, Anlage, Erstellt von, Datum, Version, Bemerkung (zum Ausfüllen) |
 | PLC-Tags | Variablentabelle, Name, Datentyp, Adresse, Kommentar, Zugriffsebene |
 | HMI-Tags | Variablentabelle, Name, Datentyp, Verbindung, PLC-Variable, Kommentar, Quellkommentar |
-| DB-Variablen | Pfad, Ordnerebene 1..N, DB-Name, Variablenname, Datentyp, Offset, Kommentar, Initialwert |
+| DB-Variablen | DB-Name, Pfad, Ordnerebene 1..N, Variablenname, Datentyp, Offset, Kommentar, Initialwert |
 
-Im DB-Variablen-Sheet enthält Spalte A ("Pfad") den vollständigen Ordnerpfad
-des Datenbausteins als Text, die Ebenen mit " - " verbunden (z. B. `PLC_1 -
-Programmbausteine - 01 [4805] DrySaltingMachine - DDb`); danach bildet je eine
-weitere Spalte dieselbe Ordnerebene einzeln ab (von der PLC-Wurzel bis zum
-direkten Elternordner — der DB selbst ist weder in "Pfad" noch in den
-Ordnerebene-Spalten enthalten, er steht in "DB-Name"). Zeilen desselben DBs
-sind per Gliederung (`outline_level`) gruppiert und lassen sich links über
-+/- ein- und ausklappen; zwischen den DB-Blöcken steht je eine Leerzeile.
-Kopfzeile ist fett formatiert, die erste Zeile eingefroren, Spaltenbreiten
-werden automatisch an den Inhalt angepasst.
+Im DB-Variablen-Sheet ist Spalte A ("DB-Name") die Gruppierungsspalte; Spalte
+B ("Pfad") enthält den vollständigen Ordnerpfad des Datenbausteins als Text,
+die Ebenen mit " - " verbunden (z. B. `PLC_1 - Programmbausteine - 01 [4805]
+DrySaltingMachine - DDb`); danach bildet je eine weitere Spalte dieselbe
+Ordnerebene einzeln ab (von der PLC-Wurzel bis zum direkten Elternordner —
+der DB selbst ist weder in "Pfad" noch in den Ordnerebene-Spalten enthalten).
+Zeilen desselben DBs sind per Gliederung (`outline_level`) gruppiert und
+lassen sich links über +/- ein- und ausklappen; zwischen den DB-Blöcken steht
+je eine Leerzeile. Kopfzeile ist fett formatiert, die erste Zeile
+eingefroren, Spaltenbreiten werden automatisch an den Inhalt angepasst.
 
 Dasselbe Gruppieren-und-Einklappen gilt auch für PLC-Tags und HMI-Tags: dort
 werden die Zeilen nach Spalte A ("Variablentabelle") gruppiert, mit

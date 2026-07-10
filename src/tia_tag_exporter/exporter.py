@@ -158,19 +158,19 @@ class ExcelExporter:
 
     @staticmethod
     def _write_db_variables_sheet(sheet: Worksheet, records: list[dict[str, Any]]) -> None:
-        """Schreibt das DB-Variablen-Sheet: Spalte A "Pfad" (Ordnerpfad als
-        Text, Ebenen mit " - " verbunden), gefolgt von den Ordnerebenen als
-        eigene Spalten, DB-Name, Variablenname und den übrigen Feldern. Zeilen
-        desselben DBs werden per ``outline_level`` gruppiert, sodass sie im DB
-        links per +/- eingeklappt werden können. Zwischen den DB-Blöcken steht
-        je eine Leerzeile.
+        """Schreibt das DB-Variablen-Sheet: Spalte A "DB-Name" (Gruppierungs-
+        spalte), gefolgt von "Pfad" (Ordnerpfad als Text, Ebenen mit " - "
+        verbunden), den Ordnerebenen als eigene Spalten, Variablenname und den
+        übrigen Feldern. Zeilen desselben DBs werden per ``outline_level``
+        gruppiert, sodass sie im DB links per +/- eingeklappt werden können.
+        Zwischen den DB-Blöcken steht je eine Leerzeile.
         """
         max_depth = max((len(record.get("_folder_path", [])) for record in records), default=0)
         folder_headers = [f"Ordnerebene {i + 1}" for i in range(max_depth)]
         other_headers = [
             header for header in records[0].keys() if header not in ("Name", "_folder_path", "_db_name")
         ]
-        headers = ["Pfad", *folder_headers, "DB-Name", "Variablenname", *other_headers]
+        headers = ["DB-Name", "Pfad", *folder_headers, "Variablenname", *other_headers]
         ExcelExporter._write_row(sheet, 1, headers)
 
         header_font = Font(bold=True)
@@ -190,9 +190,9 @@ class ExcelExporter:
             folder_cells = [folder_path[i] if i < len(folder_path) else "" for i in range(max_depth)]
             row_index += 1
             row = [
+                record.get("_db_name", ""),
                 " - ".join(folder_path),
                 *folder_cells,
-                record.get("_db_name", ""),
                 record.get("Name", ""),
                 *[record.get(header, "") for header in other_headers],
             ]
