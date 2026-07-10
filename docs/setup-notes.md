@@ -1,5 +1,45 @@
 # Setup-Notizen — TIA Openness DLL (V19–V21)
 
+## Windows-Installation für Endnutzer (Stand: 2026-07-10)
+
+Kurzanleitung für alle, die das Repo klonen oder als ZIP herunterladen und
+lokal auf einem Windows-Rechner mit TIA Portal zum Laufen bringen wollen —
+auf GitHub liegt nur der Python-Quellcode, keine `.exe`.
+
+1. **Python 3.11+** von [python.org](https://python.org) installieren (nicht
+   der Microsoft-Store-Build — der bringt teils ähnliche Einschränkungen mit
+   wie Debians `externally-managed-environment`). Im Installer „Add
+   python.exe to PATH" aktivieren.
+2. Repo klonen (`git clone …`) oder als ZIP herunterladen und entpacken.
+3. Optional, aber empfohlen — virtuelle Umgebung anlegen, statt in die
+   System-Python-Installation zu installieren:
+   ```
+   python -m venv .venv
+   .venv\Scripts\activate
+   ```
+4. Installieren:
+   ```
+   pip install -e .
+   ```
+   Zieht `pythonnet`, `openpyxl`, `pydantic`, `pyyaml` automatisch nach
+   (siehe `pyproject.toml`). Anders als unter Debian/Ubuntu (dort blockiert
+   PEP 668 / `externally-managed-environment` ein direktes `pip install`)
+   läuft das unter Windows ohne Zusatzflags durch.
+5. **TIA Portal (V19/V20/V21) muss lokal installiert sein** — das Tool
+   spricht dessen Openness-DLL direkt an. Ohne TIA-Portal-Installation
+   funktioniert der Export grundsätzlich nicht, unabhängig von Python.
+   Details zum jeweiligen DLL-Layout siehe die folgenden Abschnitte dieser
+   Datei.
+6. `config.example.yaml` nach `config.yaml` kopieren und `dll_path` auf die
+   tatsächliche TIA-Portal-Installation anpassen (siehe unten, "Tatsächliche
+   V21-Struktur" bzw. "V19/V20: monolithisches Layout").
+7. Starten:
+   ```
+   tia-tag-exporter
+   ```
+   Konsolen-Einstiegspunkt aus `pyproject.toml` (`[project.scripts]`) —
+   öffnet das Tkinter-GUI, es gibt keinen separaten CLI-Modus.
+
 ## Korrektur (Stand: 2026-07-09)
 
 Die erste Suche nach `Siemens.Engineering.dll` in `C:\Program Files\Siemens\`
