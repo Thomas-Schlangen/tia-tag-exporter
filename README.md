@@ -98,6 +98,10 @@ sind per Gliederung (`outline_level`) gruppiert und lassen sich links über
 Kopfzeile ist fett formatiert, die erste Zeile eingefroren, Spaltenbreiten
 werden automatisch an den Inhalt angepasst.
 
+Dasselbe Gruppieren-und-Einklappen gilt auch für PLC-Tags und HMI-Tags: dort
+werden die Zeilen nach Spalte A ("Variablentabelle") gruppiert, mit
+Leerzeile zwischen den Tabellen-Blöcken.
+
 ## Logging
 
 Alle Läufe werden über [`my_logger`](src/my_logger) (stdlib `logging`)

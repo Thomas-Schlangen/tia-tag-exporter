@@ -118,6 +118,11 @@ class ExcelExporter:
 
     @staticmethod
     def _write_sheet(sheet: Worksheet, records: list[dict[str, Any]]) -> None:
+        """Schreibt PLC-Tags/HMI-Tags: Zeilen werden nach Spalte A
+        ("Variablentabelle") gruppiert und lassen sich per ``outline_level``
+        links über +/- ein- und ausklappen (wie beim DB-Variablen-Sheet).
+        Zwischen den Tabellen-Blöcken steht je eine Leerzeile.
+        """
         headers = list(records[0].keys())
         ExcelExporter._write_row(sheet, 1, headers)
 
@@ -125,8 +130,22 @@ class ExcelExporter:
         for cell in sheet[1]:
             cell.font = header_font
 
-        for row_index, record in enumerate(records, start=2):
+        sheet.sheet_properties.outlinePr.summaryBelow = False
+
+        group_key = headers[0]
+        current_group: Any = None
+        row_index = 1
+        for record in records:
+            group_value = record.get(group_key)
+            if current_group is not None and group_value != current_group:
+                row_index += 1  # Leerzeile zwischen Gruppen-Blöcken (Zelle bleibt ungeschrieben = leer)
+
+            row_index += 1
             ExcelExporter._write_row(sheet, row_index, [record.get(header, "") for header in headers])
+
+            if group_value == current_group:
+                sheet.row_dimensions[row_index].outline_level = 1
+            current_group = group_value
 
         sheet.freeze_panes = "A2"
 
