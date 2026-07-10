@@ -106,9 +106,11 @@ class TagExtractor:
             hmi: Ein HMI-Software-Objekt (Advanced/Comfort ``HmiTarget`` oder
                 Unified ``HmiSoftware``).
             project_texts: Nachschlage-Tabelle für Kommentare (siehe
-                ``project_texts.ProjectTextComments``) — wird hier für die
-                Spalte ``Quellkommentar`` gebraucht (siehe
-                ``_read_quellkommentar``), NICHT für ``Kommentar`` selbst.
+                ``project_texts.ProjectTextComments``) — wird für zwei Spalten
+                gebraucht: ``Kommentar`` (eigener Tag-Kommentar, bei WinCC
+                Advanced/Comfort über Openness nicht direkt abrufbar, siehe
+                ``get_hmi_comment``) und ``Quellkommentar`` (Kommentar der
+                verknüpften PLC-Variable, siehe ``_read_quellkommentar``).
 
         Returns:
             Liste von Dicts mit Name, Datentyp, Verbindung, PLC-Variable,
@@ -116,9 +118,11 @@ class TagExtractor:
         """
         records: list[HmiTagRecord] = []
         tag_tables = list(self._iter_hmi_tag_tables(hmi))
+        hmi_name = getattr(hmi, "Name", "?")
+        hmi_device_name = self._get_hmi_device_name(hmi)
 
         if not tag_tables:
-            logger.warning("HMI-Objekt '%s' besitzt keine Tag-Tabellen", getattr(hmi, "Name", "?"))
+            logger.warning("HMI-Objekt '%s' besitzt keine Tag-Tabellen", hmi_name)
             return records
 
         for table in tag_tables:
@@ -128,12 +132,17 @@ class TagExtractor:
             for tag in tags:
                 try:
                     # Bei WinCC Advanced/Comfort (Siemens.Engineering.Hmi.Tag.Tag)
-                    # exponiert Openness ausschließlich "Name" — Datentyp/Verbindung/
-                    # Kommentar bleiben dort leer. Live verifiziert (siehe
-                    # docs/setup-notes.md), kein Bug. Bei WinCC Unified sind es
-                    # echte Properties und werden korrekt gefüllt.
+                    # exponiert Openness selbst ausschließlich "Name" — Datentyp/
+                    # Verbindung/Kommentar sind über GetAttribute/Property nicht
+                    # abrufbar (live verifiziert, siehe docs/setup-notes.md). Der
+                    # eigene Kommentar kommt daher aus der Projekttexte-Kategorie
+                    # "<HMI comment>" (siehe ProjectTextComments.get_hmi_comment).
+                    # Bei WinCC Unified ist "Comment" eine echte Property und wird
+                    # direkt gelesen, ohne den Projekttexte-Umweg.
                     controller_tag = controller_tags.get(tag.Name)
                     comment = self._read_comment(self._get_value(tag, "Comment"))
+                    if not comment and project_texts is not None and hmi_device_name is not None:
+                        comment = project_texts.get_hmi_comment(hmi_device_name, table_name, tag.Name)
                     # Quellkommentar: NICHT der Kommentar des HMI-Tags selbst,
                     # sondern der Kommentar der verknüpften PLC-Variable
                     # (Quelle = PLC-Seite) — bewusst eine eigene Spalte, kein
@@ -159,6 +168,32 @@ class TagExtractor:
 
         logger.info("%d HMI-Tags extrahiert", len(records))
         return records
+
+    @classmethod
+    def _get_hmi_device_name(cls, hmi: Any) -> str | None:
+        """Ermittelt den Namen des Hardware-Geräts, dem ein HMI-Software-
+        Container angehört (z. B. ``"pn4805-15A10"``) — NICHT ``hmi.Name``
+        (das ist der Name des Software-Containers selbst, z. B.
+        ``"HMI_RT_8"``, live verifiziert als unterschiedlich).
+
+        Wird für die Projekttexte-Suche gebraucht: Der ``ViewPath`` der
+        Kategorie ``<HMI comment>`` verwendet den Gerätenamen, nicht den
+        Software-Container-Namen. Läuft die ``Parent``-Kette hoch (wie bei
+        ``_get_db_folder_path`` liefert ``.Parent`` dabei generisch typisierte
+        ``IEngineeringObject``-Objekte, daher ``_get_value`` statt ``getattr``
+        für ``Name``) bis zur Projekt-Wurzel (deren ``Parent`` ``None`` ist)
+        und nimmt den vorletzten Namen — direkt vor dem Projektnamen.
+        """
+        names: list[str] = []
+        node = hmi
+        depth = 0
+        while node is not None and depth < 20:
+            name = cls._get_value(node, "Name")
+            if name:
+                names.append(name)
+            node = getattr(node, "Parent", None)
+            depth += 1
+        return names[-2] if len(names) >= 2 else None
 
     @classmethod
     def _read_quellkommentar(

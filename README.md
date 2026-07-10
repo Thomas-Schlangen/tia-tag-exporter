@@ -163,6 +163,16 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
   läuft einmal pro Tag-Tabelle (nicht pro Tag) und wird intern geparst.
   Rein interne, nicht mit der PLC verknüpfte HMI-Tags bleiben dabei
   korrekterweise leer (kein `ControllerTag`-Element im Export).
+- **HMI-Tags: `Kommentar` kommt bei WinCC Advanced/Comfort ebenfalls aus den
+  Projekttexten, nicht aus dem Tag-Objekt.** Der eigene Kommentar eines
+  Advanced/Comfort-Tags ist über Openness nicht abrufbar, existiert aber in
+  der Projekttexte-Kategorie `<HMI comment>` mit einem `ViewPath` wie
+  `{Projekt}\{HMI-Gerät}\HMI-Variablen\{Tag-Tabelle}\{Tag-Name}\Kommentar`.
+  Wichtig: Der Gerätename im Pfad ist **nicht** `hmi.Name` (das ist der Name
+  des Software-Containers, z. B. `HMI_RT_8`), sondern der Name des
+  Hardware-Geräts (z. B. `pn4805-15A10`) — wird über die `Parent`-Kette
+  ermittelt. Bei WinCC Unified ist `Comment` eine echte Property und wird
+  direkt gelesen, ohne diesen Umweg.
 - **HMI-Tags: `Quellkommentar` ist NICHT der Kommentar des HMI-Tags
   selbst, sondern der Kommentar der verknüpften PLC-Variable** (die
   "Quelle" der HMI-Variable) — eine eigenständige Spalte, kein Ersatzwert

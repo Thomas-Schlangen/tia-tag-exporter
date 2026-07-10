@@ -1,15 +1,17 @@
-"""Liest DB-Variablen-Kommentare aus der zentralen TIA-Portal-Projekttexte-Verwaltung.
+"""Liest DB-Variablen- und HMI-Tag-Kommentare aus der zentralen
+TIA-Portal-Projekttexte-Verwaltung.
 
-``Siemens.Engineering.SW.Blocks.Interface.Member`` (DB-Variablen) hat über
-Openness kein ``Comment``-Attribut — live erschöpfend verifiziert über alle
-Member-Typen eines realen Projekts (siehe docs/setup-notes.md). Die Kommentare
-existieren aber sehr wohl im Projekt: TIA Portal verwaltet sie zentral unter
-"Sprachen & Ressourcen > Projekttexte", exportierbar über
-``Project.ExportProjectTexts()``. Dieses Modul exportiert die Projekttexte
-einmalig in eine temporäre Excel-Datei und baut daraus eine Nachschlage-Tabelle
-(PLC-Name, DB-Name, Variablenname) -> Kommentartext.
+Sowohl ``Siemens.Engineering.SW.Blocks.Interface.Member`` (DB-Variablen) als
+auch ``Siemens.Engineering.Hmi.Tag.Tag`` (HMI-Variablen bei WinCC
+Advanced/Comfort) haben über Openness kein ``Comment``-Attribut — live
+erschöpfend verifiziert über alle Member-/Tag-Typen eines realen Projekts
+(siehe docs/setup-notes.md). Die Kommentare existieren aber sehr wohl im
+Projekt: TIA Portal verwaltet sie zentral unter "Sprachen & Ressourcen >
+Projekttexte", exportierbar über ``Project.ExportProjectTexts()``. Dieses
+Modul exportiert die Projekttexte einmalig in eine temporäre Excel-Datei und
+baut daraus zwei Nachschlage-Tabellen.
 
-Live verifiziert: Zeilen der Kategorie ``<BlockCommentCategoryData>`` mit
+**DB-Variablen** — Zeilen der Kategorie ``<BlockCommentCategoryData>`` mit
 einem ``ViewPath`` wie
 ``{Projekt}\\{PLC}\\Programmbausteine\\...\\{DB-Name}\\{Membername}`` (bei
 verschachtelten Struct-Membern mit Punktnotation, z. B. ``4805_30M1.Drive`` —
@@ -21,6 +23,12 @@ den PLC-Namen ohnehin bereits explizit. Andere Zeilen derselben Kategorie
 (Bausteinkommentare, Netzwerkkommentare im Code, UDT-Kommentare) landen
 ebenfalls im internen Dict, matchen aber nie einen echten
 (PLC-Name, DB-Name, Variablenname)-Schlüssel und werden schlicht nie abgefragt.
+
+**HMI-Variablen** — Zeilen der Kategorie ``<HMI comment>`` mit einem
+``ViewPath`` wie
+``{Projekt}\\{HMI-Gerät}\\HMI-Variablen\\{Tag-Tabelle}\\{Tag-Name}\\Kommentar``
+(live gefunden und verifiziert, z. B.
+``...\\HMI-Variablen\\internal\\blnPLC1SwitchUpdated\\Kommentar``).
 """
 
 from __future__ import annotations
@@ -35,14 +43,16 @@ import openpyxl
 logger = logging.getLogger(__name__)
 
 _BLOCK_COMMENT_CATEGORY = "<BlockCommentCategoryData>"
+_HMI_COMMENT_CATEGORY = "<HMI comment>"
 
 
 class ProjectTextComments:
-    """Nachschlage-Tabelle für DB-Variablen-Kommentare aus den Projekttexten."""
+    """Nachschlage-Tabelle für DB-Variablen- und HMI-Tag-Kommentare aus den Projekttexten."""
 
     def __init__(self) -> None:
         self._comments: dict[tuple[str, str, str], str] = {}
         self._comments_by_db_member: dict[tuple[str, str], str] = {}
+        self._hmi_comments: dict[tuple[str, str, str], str] = {}
 
     @classmethod
     def load(cls, project: Any) -> "ProjectTextComments":
@@ -87,7 +97,8 @@ class ProjectTextComments:
                 ]
 
                 for row in rows:
-                    if row[category_idx] != _BLOCK_COMMENT_CATEGORY:
+                    category = row[category_idx]
+                    if category not in (_BLOCK_COMMENT_CATEGORY, _HMI_COMMENT_CATEGORY):
                         continue
                     view_path = row[view_path_idx]
                     if not view_path:
@@ -97,17 +108,31 @@ class ProjectTextComments:
                         continue
 
                     segments = view_path.split("\\")
-                    if len(segments) < 3:
-                        continue
-                    plc_name = segments[1]
-                    db_name = segments[-2]
-                    member_path = segments[-1]
-                    self._comments[(plc_name, db_name, member_path)] = text
-                    self._comments_by_db_member[(db_name, member_path)] = text
+
+                    if category == _BLOCK_COMMENT_CATEGORY:
+                        if len(segments) < 3:
+                            continue
+                        plc_name = segments[1]
+                        db_name = segments[-2]
+                        member_path = segments[-1]
+                        self._comments[(plc_name, db_name, member_path)] = text
+                        self._comments_by_db_member[(db_name, member_path)] = text
+                    else:  # _HMI_COMMENT_CATEGORY
+                        # ViewPath endet auf "...\<Tag-Tabelle>\<Tag-Name>\Kommentar"
+                        if len(segments) < 4:
+                            continue
+                        hmi_name = segments[1]
+                        table_name = segments[-3]
+                        tag_name = segments[-2]
+                        self._hmi_comments[(hmi_name, table_name, tag_name)] = text
             finally:
                 workbook.close()
 
-        logger.info("%d DB-Variablen-Kommentare aus Projekttexten geladen", len(self._comments))
+        logger.info(
+            "%d DB-Variablen-Kommentare und %d HMI-Tag-Kommentare aus Projekttexten geladen",
+            len(self._comments),
+            len(self._hmi_comments),
+        )
 
     def get(self, plc_name: str, db_name: str, member_path: str) -> str | None:
         """Liefert den Kommentar für ``plc_name``/``db_name``/``member_path``
@@ -126,3 +151,12 @@ class ProjectTextComments:
         (typischerweise ein PLC pro HMI-Verbindung) ist das vernachlässigbar.
         """
         return self._comments_by_db_member.get((db_name, member_path))
+
+    def get_hmi_comment(self, hmi_name: str, table_name: str, tag_name: str) -> str | None:
+        """Liefert den eigenen Kommentar eines HMI-Tags (WinCC Advanced/Comfort)
+        aus der Kategorie ``<HMI comment>``, oder ``None`` falls keiner
+        hinterlegt ist. Das ist der tatsächliche Kommentar der HMI-Variable
+        selbst — nicht zu verwechseln mit dem "Quellkommentar" der
+        verknüpften PLC-Variable (siehe ``get_by_db_member``).
+        """
+        return self._hmi_comments.get((hmi_name, table_name, tag_name))
