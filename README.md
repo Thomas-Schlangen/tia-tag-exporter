@@ -84,7 +84,7 @@ Eine Excel-Datei mit einem Deckblatt und bis zu drei weiteren Arbeitsblättern:
 |---|---|
 | Deckblatt | Kunde, Projekt, Anlage, Erstellt von, Datum, Version, Bemerkung (zum Ausfüllen) |
 | PLC-Tags | Variablentabelle, Name, Datentyp, Adresse, Kommentar, Zugriffsebene |
-| HMI-Tags | Variablentabelle, Name, Datentyp, Verbindung, Kommentar |
+| HMI-Tags | Variablentabelle, Name, Datentyp, Verbindung, PLC-Variable, Kommentar |
 | DB-Variablen | Pfad, Ordnerebene 1..N, DB-Name, Variablenname, Datentyp, Offset, Kommentar, Initialwert |
 
 Im DB-Variablen-Sheet enthält Spalte A ("Pfad") den vollständigen Ordnerpfad
@@ -156,6 +156,14 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
   HMI-Typ grundsätzlich leer — die Openness API stellt diese Werte für
   klassische Comfort-/Advanced-Tags schlicht nicht bereit (weder als Property
   noch über `GetAttribute`).
+- **HMI-Tags: `PLC-Variable` kommt nicht aus dem Tag-Objekt selbst.** Analog
+  zu den DB-Variablen-Kommentaren gibt es auch für die Verknüpfung zur
+  gebundenen PLC-Variable keine Property oder kein Attribut auf
+  `Hmi.Tag.Tag` (live erschöpfend verifiziert). Sie steckt aber im XML von
+  `HmiTagTable.Export()` (`<LinkList><ControllerTag><Name>`) — der Export
+  läuft einmal pro Tag-Tabelle (nicht pro Tag) und wird intern geparst.
+  Rein interne, nicht mit der PLC verknüpfte HMI-Tags bleiben dabei
+  korrekterweise leer (kein `ControllerTag`-Element im Export).
 - **WinCC Unified** ist bisher nur anhand der .NET-Typsignaturen verifiziert
   (per Reflection: `HmiUnified.HmiTags.HmiTag` hat echte `DataType`-,
   `Connection`- und `Comment`-Properties), aber noch nicht live gegen ein

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import tempfile
+import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -113,6 +116,7 @@ class TagExtractor:
 
         for table in tag_tables:
             table_name = getattr(table, "Name", None) or "Default"
+            controller_tags = self._read_controller_tags(table)
             tags = getattr(table, "Tags", [])
             for tag in tags:
                 try:
@@ -127,6 +131,7 @@ class TagExtractor:
                             "Name": tag.Name,
                             "Datentyp": self._read_hmi_data_type(tag),
                             "Verbindung": self._read_hmi_connection(tag),
+                            "PLC-Variable": controller_tags.get(tag.Name, ""),
                             "Kommentar": self._read_comment(self._get_value(tag, "Comment")),
                         }
                     )
@@ -139,6 +144,59 @@ class TagExtractor:
 
         logger.info("%d HMI-Tags extrahiert", len(records))
         return records
+
+    @staticmethod
+    def _read_controller_tags(table: Any) -> dict[str, str]:
+        """Ermittelt, mit welcher PLC-Variable jedes Tag einer HMI-Tag-Tabelle
+        verknüpft ist (``{Tag-Name: PLC-Variable}``).
+
+        Die Verknüpfung ist über das Openness-Objektmodell selbst nicht
+        zugänglich — weder ``Siemens.Engineering.Hmi.Tag.Tag`` noch die
+        generische ``GetAttribute``-Schnittstelle kennen ein "Connection"-
+        oder "Address"-Attribut dafür (live erschöpfend verifiziert). Sie
+        taucht aber im XML von ``HmiTagTable.Export()`` auf: jedes Tag-Element
+        enthält dort einen ``<LinkList><ControllerTag><Name>`` -Verweis auf
+        die gebundene PLC-Variable (fehlt komplett bei rein internen,
+        nicht mit der PLC verknüpften Tags). Export erfolgt einmal pro
+        Tabelle (nicht pro Tag) und wird in einem Temp-Verzeichnis
+        zwischengelagert.
+
+        Schlägt der Export fehl (z. B. weil ein Tabellentyp ``Export()`` nicht
+        unterstützt), wird ein leeres Dict zurückgegeben — "PLC-Variable"
+        bleibt dann für diese Tabelle leer, der restliche Export läuft
+        unbeeinträchtigt weiter.
+        """
+        try:
+            from System.IO import FileInfo
+            from Siemens.Engineering import ExportOptions
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                export_path = Path(tmp_dir) / "hmi_table.xml"
+                table.Export(FileInfo(str(export_path)), ExportOptions.WithDefaults)
+
+                result: dict[str, str] = {}
+                root = ET.parse(export_path).getroot()
+                for elem in root.iter():
+                    attribute_list = elem.find("AttributeList")
+                    link_list = elem.find("LinkList")
+                    if attribute_list is None or link_list is None:
+                        continue
+                    name_elem = attribute_list.find("Name")
+                    controller_tag_elem = link_list.find("ControllerTag")
+                    if name_elem is None or controller_tag_elem is None:
+                        continue
+                    controller_name_elem = controller_tag_elem.find("Name")
+                    if controller_name_elem is None or not controller_name_elem.text:
+                        continue
+                    result[name_elem.text] = controller_name_elem.text
+                return result
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "PLC-Verknüpfung für Tag-Tabelle '%s' konnte nicht gelesen werden: %s",
+                getattr(table, "Name", "?"),
+                exc,
+            )
+            return {}
 
     def extract_db_variables(
         self, db: Any, plc: Any, project_texts: "ProjectTextComments | None" = None
