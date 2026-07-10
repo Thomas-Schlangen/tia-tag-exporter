@@ -36,11 +36,11 @@ class TagExtractor:
     """Liest Tags und Variablen aus PLC-, HMI- und DB-Objekten der Openness API."""
 
     def __init__(self) -> None:
-        # Pro TagExtractor-Instanz einmalig ermittelt (siehe
-        # _read_member_attributes) und über alle DBs des Exports hinweg
-        # wiederverwendet, da das Attribut-Schema am CLR-Typ hängt, nicht an
-        # der konkreten Member-Instanz.
-        self._member_attribute_names: list[str] | None = None
+        # Cache: exakte Menge der von einem Member unterstützten Attribute
+        # (via GetAttributeInfos()) -> gefilterte Teilmenge von
+        # _WANTED_MEMBER_ATTRIBUTES. Muss pro Member-Form (nicht global)
+        # gecacht werden, siehe _read_member_attributes.
+        self._member_attribute_cache: dict[frozenset[str], list[str]] = {}
 
     def extract_plc_tags(self, plc: Any) -> list[PlcTagRecord]:
         """Extrahiert alle PLC-Tags aus allen Tag-Tabellen einer Steuerung.
@@ -289,46 +289,51 @@ class TagExtractor:
         Attribut) auch ``member.GetAttributes([...])`` (ein Bulk-Call für
         mehrere Attribute auf einmal) — allerdings wirft der Bulk-Call eine
         harte Exception, sobald auch nur ein angefragter Name für den
-        konkreten Member-Typ nicht existiert (z. B. "Offset"/"Comment" gibt es
-        bei V19 gar nicht als Attribut). Deshalb wird einmalig (nicht pro
-        Member!) über ``GetAttributeInfos()`` ermittelt, welche der
-        gewünschten Namen tatsächlich unterstützt werden, und danach immer
-        nur mit dieser gefilterten Liste gebulkt.
+        konkreten Member-Typ nicht existiert. Welche Attribute existieren,
+        hängt vom *Typ* des Members ab, nicht nur von der TIA-Version: ein
+        Struct-Container-Member (z. B. ein Bool-Array oder DB-Auto-Diagnose-
+        Member) hat kein ``StartValue``, ein einfaches Skalar-Member schon.
+        Eine frühere Version dieser Methode hat die unterstützten Attribute
+        einmalig anhand des *ersten* Members im gesamten Export ermittelt und
+        für den Rest wiederverwendet — war der erste Member zufällig ein
+        Struct-Container ohne ``StartValue``, blieb "Initialwert" für den
+        kompletten restlichen Export leer, obwohl es bei den meisten Membern
+        eigentlich verfügbar gewesen wäre (live so aufgetreten und behoben).
 
-        Der Unterschied ist bei Datenbausteinen mit tausenden Membern (z. B.
-        große flache Arrays) massiv: 1 Bulk-Call statt 4 Einzel-Calls pro
-        Member. Live gegen TIA Portal V19 verifiziert — ohne diese
-        Bündelung bricht die Openness-Session bei DBs mit vielen Membern
-        mitten in der Extraktion ab.
+        Deshalb wird ``GetAttributeInfos()`` für **jedes** Member neu
+        aufgerufen (das lässt sich nicht sicher vermeiden, ohne wieder falsche
+        Werte zu riskieren), das Ergebnis aber pro exakter Attribut-Menge
+        gecacht, damit die Python-seitige Filterung nicht wiederholt werden
+        muss. Macht 2 Remote-Calls pro Member (``GetAttributeInfos`` +
+        ``GetAttributes``) statt der ursprünglichen 4 einzelnen
+        ``GetAttribute``-Calls — immer noch eine spürbare Reduktion bei DBs
+        mit tausenden Membern, aber korrekt für jede Member-Form.
         """
-        if self._member_attribute_names is None:
-            self._member_attribute_names = self._detect_supported_attributes(member)
-
-        if not self._member_attribute_names:
+        try:
+            infos = member.GetAttributeInfos()
+            available = frozenset(info.Name for info in infos)
+        except Exception:  # noqa: BLE001
             return {name: self._get_value(member, name) for name in _WANTED_MEMBER_ATTRIBUTES}
+
+        wanted_names = self._member_attribute_cache.get(available)
+        if wanted_names is None:
+            wanted_names = [name for name in _WANTED_MEMBER_ATTRIBUTES if name in available]
+            self._member_attribute_cache[available] = wanted_names
+
+        if not wanted_names:
+            return {}
 
         try:
             from System import String
             from System.Collections.Generic import List
 
             net_names = List[String]()
-            for name in self._member_attribute_names:
+            for name in wanted_names:
                 net_names.Add(name)
             raw_values = list(member.GetAttributes(net_names))
-            return dict(zip(self._member_attribute_names, raw_values))
+            return dict(zip(wanted_names, raw_values))
         except Exception:  # noqa: BLE001 — Schema-Abweichung bei diesem Member, Einzelabfrage als Fallback
             return {name: self._get_value(member, name) for name in _WANTED_MEMBER_ATTRIBUTES}
-
-    @staticmethod
-    def _detect_supported_attributes(member: Any) -> list[str]:
-        """Ermittelt einmalig, welche von ``_WANTED_MEMBER_ATTRIBUTES`` diese
-        TIA-Version für Interface-Member tatsächlich unterstützt."""
-        try:
-            infos = member.GetAttributeInfos()
-            available = {info.Name for info in infos}
-        except Exception:  # noqa: BLE001
-            return []
-        return [name for name in _WANTED_MEMBER_ATTRIBUTES if name in available]
 
     @staticmethod
     def _is_elementary_type(data_type_name: Any) -> bool:
