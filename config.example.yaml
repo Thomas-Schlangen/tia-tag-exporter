@@ -2,9 +2,11 @@ tia:
   version: "V21"
   versions:
     V19:
-      dll_path: "C:/Program Files/Siemens/Automation/Portal V19/PublicAPI/V19/net48/Siemens.Engineering.Base.dll"
+      # V19/V20: monolithische Siemens.Engineering.dll, kein net48-Unterordner
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V19/PublicAPI/V19/Siemens.Engineering.dll"
     V20:
-      dll_path: "C:/Program Files/Siemens/Automation/Portal V20/PublicAPI/V20/net48/Siemens.Engineering.Base.dll"
+      # Pfad analog zu V19 abgeleitet, nicht auf einer echten V20-Installation verifiziert
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V20/PublicAPI/V20/Siemens.Engineering.dll"
     V21:
       dll_path: "C:/Program Files/Siemens/Automation/Portal V21/PublicAPI/V21/net48/Siemens.Engineering.Base.dll"
 export:

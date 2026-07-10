@@ -11,9 +11,36 @@ PlcTagRecord = dict[str, Any]
 HmiTagRecord = dict[str, Any]
 DbVariableRecord = dict[str, Any]
 
+# Elementare IEC-61131-Datentypen — Member mit einem dieser Typen (auch als
+# "Array[...] of <Typ>") haben nie ein Struct/UDT dahinter und brauchen keine
+# GetComposition("Members")-Sonde (siehe TagExtractor._is_elementary_type).
+_ELEMENTARY_DATA_TYPES = frozenset(
+    {
+        "bool", "byte", "word", "dword", "lword",
+        "sint", "usint", "int", "uint", "dint", "udint", "lint", "ulint",
+        "real", "lreal",
+        "char", "wchar", "string", "wstring",
+        "time", "ltime", "date", "time_of_day", "tod", "ltime_of_day", "ltod",
+        "date_and_time", "dtl", "s5time",
+    }
+)
+
+# Attribute, die pro DB-Interface-Member benötigt werden. Statt vier einzelnen
+# Member.GetAttribute(name)-Calls wird (falls von der jeweiligen TIA-Version
+# unterstützt) ein einziger Member.GetAttributes([...])-Bulk-Call gemacht —
+# siehe TagExtractor._read_member_attributes.
+_WANTED_MEMBER_ATTRIBUTES = ("DataTypeName", "Offset", "Comment", "StartValue")
+
 
 class TagExtractor:
     """Liest Tags und Variablen aus PLC-, HMI- und DB-Objekten der Openness API."""
+
+    def __init__(self) -> None:
+        # Pro TagExtractor-Instanz einmalig ermittelt (siehe
+        # _read_member_attributes) und über alle DBs des Exports hinweg
+        # wiederverwendet, da das Attribut-Schema am CLR-Typ hängt, nicht an
+        # der konkreten Member-Instanz.
+        self._member_attribute_names: list[str] | None = None
 
     def extract_plc_tags(self, plc: Any) -> list[PlcTagRecord]:
         """Extrahiert alle PLC-Tags aus allen Tag-Tabellen einer Steuerung.
@@ -117,16 +144,42 @@ class TagExtractor:
             Liste von Dicts mit Name, Datentyp, Offset, Kommentar, Initialwert,
             sowie ``_folder_path`` (Ordnerpfad des DBs) und ``_db_name``.
         """
-        records: list[DbVariableRecord] = []
         db_name = getattr(db, "Name", "?")
 
-        try:
-            members = db.Interface.Members
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Interface von DB '%s' nicht lesbar: %s", db_name, exc)
-            return records
-
-        self._collect_members(members, prefix="", records=records)
+        # TIA Portal V19 (headless/WithoutUserInterface) hat sich in Tests wiederholt
+        # als instabil erwiesen: dieselbe Extraktion scheitert nicht-deterministisch
+        # (mal sofort, mal gar nicht) mit einer EngineeringObjectDisposedException
+        # ("TIA Portal has either been disposed or stopped running"), obwohl die
+        # Session tatsächlich noch lebt — ein erneuter Versuch derselben Operation
+        # gelingt in der Praxis meist. Reproduziert an zwei unabhängigen echten
+        # V19-Projekten; bei V21 bisher nicht beobachtet. Deshalb hier ein kurzer
+        # Retry statt den ganzen Export abzubrechen.
+        max_attempts = 3
+        records: list[DbVariableRecord] = []
+        for attempt in range(1, max_attempts + 1):
+            records = []
+            try:
+                members = db.Interface.Members
+                self._collect_members(members, prefix="", records=records)
+                break
+            except Exception as exc:  # noqa: BLE001
+                if attempt == max_attempts:
+                    logger.warning(
+                        "DB '%s': Openness-Zugriff nach %d Versuchen weiterhin "
+                        "instabil, DB wird übersprungen: %s",
+                        db_name,
+                        max_attempts,
+                        exc,
+                    )
+                    return []
+                logger.warning(
+                    "DB '%s': transiente Openness-Instabilität (Versuch %d/%d), "
+                    "erneuter Versuch: %s",
+                    db_name,
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
 
         folder_path = self._get_db_folder_path(db)
         for record in records:
@@ -175,27 +228,104 @@ class TagExtractor:
     def _collect_members(self, members: Any, prefix: str, records: list[DbVariableRecord]) -> None:
         for member in members:
             full_name = f"{prefix}{member.Name}"
+            data_type = None
             try:
                 # Offset/Comment bleiben leer, wenn der Baustein "Optimized" ist
                 # (TIA-Standard seit vielen Versionen) — Openness kennt dafür keinen
                 # festen Byte-Offset und keinen Member-Kommentar. Live gegen ein
                 # reales Projekt verifiziert (siehe docs/setup-notes.md), kein Bug.
+                values = self._read_member_attributes(member)
+                data_type = values.get("DataTypeName")
                 records.append(
                     {
                         "Name": full_name,
-                        "Datentyp": self._get_value(member, "DataTypeName"),
-                        "Offset": self._get_value(member, "Offset"),
-                        "Kommentar": self._read_comment(self._get_value(member, "Comment")),
-                        "Initialwert": self._get_value(member, "StartValue"),
+                        "Datentyp": data_type,
+                        "Offset": values.get("Offset"),
+                        "Kommentar": self._read_comment(values.get("Comment")),
+                        "Initialwert": values.get("StartValue"),
                     }
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("DB-Variable '%s' konnte nicht gelesen werden: %s", full_name, exc)
                 continue
 
+            if self._is_elementary_type(data_type):
+                continue
+
             nested = self._get_nested_members(member)
             if nested is not None and len(nested) > 0:
                 self._collect_members(nested, prefix=f"{full_name}.", records=records)
+
+    def _read_member_attributes(self, member: Any) -> dict[str, Any]:
+        """Liest ``_WANTED_MEMBER_ATTRIBUTES`` für ein Member in möglichst
+        wenigen Remote-Calls.
+
+        Openness kennt neben ``member.GetAttribute(name)`` (ein Call pro
+        Attribut) auch ``member.GetAttributes([...])`` (ein Bulk-Call für
+        mehrere Attribute auf einmal) — allerdings wirft der Bulk-Call eine
+        harte Exception, sobald auch nur ein angefragter Name für den
+        konkreten Member-Typ nicht existiert (z. B. "Offset"/"Comment" gibt es
+        bei V19 gar nicht als Attribut). Deshalb wird einmalig (nicht pro
+        Member!) über ``GetAttributeInfos()`` ermittelt, welche der
+        gewünschten Namen tatsächlich unterstützt werden, und danach immer
+        nur mit dieser gefilterten Liste gebulkt.
+
+        Der Unterschied ist bei Datenbausteinen mit tausenden Membern (z. B.
+        große flache Arrays) massiv: 1 Bulk-Call statt 4 Einzel-Calls pro
+        Member. Live gegen TIA Portal V19 verifiziert — ohne diese
+        Bündelung bricht die Openness-Session bei DBs mit vielen Membern
+        mitten in der Extraktion ab.
+        """
+        if self._member_attribute_names is None:
+            self._member_attribute_names = self._detect_supported_attributes(member)
+
+        if not self._member_attribute_names:
+            return {name: self._get_value(member, name) for name in _WANTED_MEMBER_ATTRIBUTES}
+
+        try:
+            from System import String
+            from System.Collections.Generic import List
+
+            net_names = List[String]()
+            for name in self._member_attribute_names:
+                net_names.Add(name)
+            raw_values = list(member.GetAttributes(net_names))
+            return dict(zip(self._member_attribute_names, raw_values))
+        except Exception:  # noqa: BLE001 — Schema-Abweichung bei diesem Member, Einzelabfrage als Fallback
+            return {name: self._get_value(member, name) for name in _WANTED_MEMBER_ATTRIBUTES}
+
+    @staticmethod
+    def _detect_supported_attributes(member: Any) -> list[str]:
+        """Ermittelt einmalig, welche von ``_WANTED_MEMBER_ATTRIBUTES`` diese
+        TIA-Version für Interface-Member tatsächlich unterstützt."""
+        try:
+            infos = member.GetAttributeInfos()
+            available = {info.Name for info in infos}
+        except Exception:  # noqa: BLE001
+            return []
+        return [name for name in _WANTED_MEMBER_ATTRIBUTES if name in available]
+
+    @staticmethod
+    def _is_elementary_type(data_type_name: Any) -> bool:
+        """Grobe Heuristik, ob ein Datentyp elementar ist (kein Struct/UDT).
+
+        Vermeidet die teure ``GetComposition("Members")``-Sonde (siehe
+        ``_get_nested_members``) für Member, die garantiert keine Unterstruktur
+        haben. Ohne diese Abkürzung ruft ``_collect_members`` die Sonde für
+        *jedes* Member auf — bei Datenbausteinen mit großen flachen Arrays
+        (z. B. ``Array[0..1023] of Bool``, wo Openness jedes Element zusätzlich
+        als eigenes Top-Level-Member auflistet) sind das mehrere Tausend
+        Remote-Calls für einen einzigen DB. Live gegen TIA Portal V19
+        verifiziert: Ohne diese Abkürzung bricht die Openness-Session mitten in
+        der Extraktion ab (``EngineeringObjectDisposedException``), mit der
+        Abkürzung läuft derselbe DB durch.
+        """
+        if not data_type_name:
+            return False
+        name = str(data_type_name).strip().lower()
+        if name.startswith("array[") and " of " in name:
+            name = name.split(" of ", 1)[1].strip()
+        return name in _ELEMENTARY_DATA_TYPES
 
     @staticmethod
     def _get_nested_members(member: Any) -> Any:

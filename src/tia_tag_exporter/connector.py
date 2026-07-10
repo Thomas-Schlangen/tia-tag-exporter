@@ -19,11 +19,21 @@ class TiaConnectionError(RuntimeError):
 # net48-Ordner aufgeteilt. "Base" enthält TiaPortal/TiaPortalMode und muss
 # zuerst geladen werden, die übrigen liefern PLC- (Step7) bzw. HMI-Zugriff
 # (WinCC = Advanced/Comfort, WinCCUnified = WinCC Unified).
-_REQUIRED_ASSEMBLIES = (
+_SPLIT_LAYOUT_ASSEMBLIES = (
     "Siemens.Engineering.Base",
     "Siemens.Engineering.Step7",
     "Siemens.Engineering.WinCC",
     "Siemens.Engineering.WinCCUnified",
+)
+
+# Vor V21 (V19/V20) ist die Openness API eine einzige "Siemens.Engineering.dll"
+# (PLC/DB/Base *und* HmiUnified zusammen) plus optional "Siemens.Engineering.Hmi.dll"
+# für WinCC Advanced/Comfort. "Siemens.Engineering.dll" hängt von
+# "Siemens.Engineering.Contract.dll" ab, die nicht im selben Ordner liegt
+# (siehe _load_dll).
+_MONOLITHIC_LAYOUT_ASSEMBLIES = (
+    "Siemens.Engineering",
+    "Siemens.Engineering.Hmi",
 )
 
 
@@ -35,9 +45,11 @@ class TiaConnector:
     """
 
     def __init__(self, dll_path: str | Path) -> None:
-        """``dll_path`` zeigt auf ``Siemens.Engineering.Base.dll``; die übrigen
-        benötigten Assemblies (Step7, WinCC, WinCCUnified) werden aus demselben
-        Ordner nachgeladen."""
+        """``dll_path`` zeigt entweder auf ``Siemens.Engineering.Base.dll``
+        (V21+, Split-Layout) oder auf ``Siemens.Engineering.dll`` (V19/V20,
+        monolithisches Layout) — anhand des Dateinamens wird automatisch
+        erkannt, welche weiteren Assemblies aus demselben Ordner nachgeladen
+        werden."""
         self.dll_path = Path(dll_path)
         self._tia_portal = None
         self._project = None
@@ -49,7 +61,7 @@ class TiaConnector:
 
         if not self.dll_path.is_file():
             raise TiaConnectionError(
-                f"Siemens.Engineering.Base.dll wurde unter '{self.dll_path}' nicht gefunden."
+                f"Openness-Assembly wurde unter '{self.dll_path}' nicht gefunden."
             )
 
         import clr  # pythonnet
@@ -57,7 +69,30 @@ class TiaConnector:
         assembly_dir = self.dll_path.parent
         sys.path.append(str(assembly_dir))
 
-        for assembly_name in _REQUIRED_ASSEMBLIES:
+        is_split_layout = self.dll_path.stem == "Siemens.Engineering.Base"
+        assembly_names = (
+            _SPLIT_LAYOUT_ASSEMBLIES if is_split_layout else _MONOLITHIC_LAYOUT_ASSEMBLIES
+        )
+
+        if not is_split_layout:
+            # Bei V19/V20 hängt Siemens.Engineering.dll von
+            # Siemens.Engineering.Contract.dll ab, die dort nicht neben der
+            # Haupt-Assembly liegt, sondern unter "<Installationswurzel>\Bin\PublicAPI"
+            # (Installationswurzel = drei Ebenen über <dll_path>, z. B.
+            # ".../Portal V19/PublicAPI/V19/Siemens.Engineering.dll" ->
+            # ".../Portal V19"). Ohne diesen Pfad schlägt das Laden von Typen
+            # aus Siemens.Engineering mit einer FileNotFoundException auf die
+            # Contract-Assembly fehl.
+            try:
+                install_root = self.dll_path.parents[2]
+            except IndexError:
+                install_root = None
+            if install_root is not None:
+                contract_dir = install_root / "Bin" / "PublicAPI"
+                if contract_dir.is_dir():
+                    sys.path.append(str(contract_dir))
+
+        for assembly_name in assembly_names:
             assembly_path = assembly_dir / f"{assembly_name}.dll"
             if not assembly_path.is_file():
                 logger.warning(

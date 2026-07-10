@@ -26,9 +26,9 @@ tia:
   version: "V21"  # Vorauswahl im GUI-Dropdown
   versions:
     V19:
-      dll_path: "C:/Program Files/Siemens/Automation/Portal V19/PublicAPI/V19/net48/Siemens.Engineering.Base.dll"
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V19/PublicAPI/V19/Siemens.Engineering.dll"
     V20:
-      dll_path: "C:/Program Files/Siemens/Automation/Portal V20/PublicAPI/V20/net48/Siemens.Engineering.Base.dll"
+      dll_path: "C:/Program Files/Siemens/Automation/Portal V20/PublicAPI/V20/Siemens.Engineering.dll"
     V21:
       dll_path: "C:/Program Files/Siemens/Automation/Portal V21/PublicAPI/V21/net48/Siemens.Engineering.Base.dll"
 export:
@@ -46,6 +46,17 @@ logging:
 Environment-spezifisch sind. Die Datei wird per
 [`config_loader`](src/config_loader) gegen ein Pydantic-v2-Schema
 (`src/tia_tag_exporter/config_schema.py`) validiert.
+
+**Zwei DLL-Layouts, automatisch erkannt:** Ab V21 ist die Openness API in
+mehrere Assemblies aufgeteilt (`dll_path` zeigt auf
+`Siemens.Engineering.Base.dll`); vor V21 (V19/V20) ist es eine einzige
+`Siemens.Engineering.dll` ohne `net48`-Unterordner, die dann von
+`Siemens.Engineering.Contract.dll` unter `<Installationswurzel>\Bin\PublicAPI`
+abhängt (nicht im `PublicAPI`-Baum selbst) — `TiaConnector` bindet diesen Pfad
+automatisch mit ein. `TiaConnector` erkennt anhand des Dateinamens von
+`dll_path`, welches Layout vorliegt, und lädt die passenden Begleit-Assemblies
+aus demselben Ordner. Sowohl WinCC Advanced/Comfort als auch WinCC Unified
+werden bei allen drei Versionen erfasst.
 
 ## Verwendung
 
@@ -135,6 +146,21 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
   Projekt mit tatsächlichem Unified-Gerät getestet.
 - Die Openness-DLL ist versionsgebunden — ein mit V21 angelegtes Projekt lässt
   sich nicht ohne Weiteres mit einer V19-DLL öffnen (siehe `docs/setup-notes.md`).
+- **TIA Portal V19 (headless) ist bei der DB-Variablen-Extraktion instabil.**
+  Live an zwei unabhängigen echten V19-Projekten reproduziert: Die
+  Openness-Session (`TiaPortalMode.WithoutUserInterface`) kann nicht-
+  deterministisch mitten in der Extraktion sterben
+  (`EngineeringObjectDisposedException`, "TIA Portal has either been disposed
+  or stopped running") — mal nach wenigen Sekunden, mal gar nicht, ohne
+  erkennbare Korrelation zu Projektgröße oder DB-Struktur. `run_export()`
+  fängt das ab und verbindet automatisch neu (bis zu `_MAX_RECONNECT_ATTEMPTS`,
+  Fortschritt wird pro PLC/DB/HMI-Target gemerkt), aber bei größeren Projekten
+  (>100 DBs) kann das Instabilitätsmuster so häufig auftreten, dass selbst das
+  nicht zuverlässig durchläuft. PLC-Tags und HMI-Tags sind davon nicht
+  betroffen (deutlich weniger Openness-Calls) und laufen auf V19 zuverlässig.
+  Bei V21 bislang nicht beobachtet (49.453 DB-Variablen live erfolgreich
+  exportiert, siehe oben). Wirkt wie ein Engine-seitiges Verhalten der
+  Siemens-Openness-Implementierung in V19, nicht wie ein Bug in diesem Tool.
 
 Details und die konkreten `GetAttributeInfos()`-Ergebnisse siehe
 `docs/setup-notes.md`.

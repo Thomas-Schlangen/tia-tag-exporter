@@ -11,13 +11,22 @@ from config_loader import load_config
 from my_logger import setup_logger
 
 from tia_tag_exporter.config_schema import AppConfig
-from tia_tag_exporter.connector import TiaConnector
+from tia_tag_exporter.connector import TiaConnectionError, TiaConnector
 from tia_tag_exporter.exporter import ExcelExporter
 from tia_tag_exporter.extractor import TagExtractor
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path("config.yaml")
+
+# TIA Portal V19 (headless/WithoutUserInterface) hat sich in Tests wiederholt
+# nicht-deterministisch als instabil erwiesen: die Openness-Session kann
+# mitten in der Extraktion sterben (alle Objekte dieser Session werden dann
+# disposed — ein Retry auf derselben Session hilft nicht mehr). Reproduziert
+# an zwei unabhängigen echten V19-Projekten; bei V21 bisher nicht beobachtet.
+# run_export() reagiert darauf mit komplettem Reconnect + Fortsetzen bei den
+# noch fehlenden PLCs/DBs/HMI-Targets (siehe dort).
+_MAX_RECONNECT_ATTEMPTS = 5
 
 
 def _configure_console_encoding() -> None:
@@ -47,17 +56,29 @@ def _find_hmi_targets(project: Any) -> list[Any]:
 
     WinCC Advanced/Comfort und WinCC Unified verwenden unterschiedliche
     Software-Klassen (``Siemens.Engineering.Hmi.HmiTarget`` bzw.
-    ``Siemens.Engineering.HmiUnified.HmiSoftware``) — beide werden erfasst.
+    ``Siemens.Engineering.HmiUnified.HmiSoftware``) — beide werden erfasst,
+    sofern die jeweilige Klasse geladen ist (bei V19/V20 stecken beide in der
+    monolithischen ``Siemens.Engineering.dll``, bei V21+ in getrennten
+    Assemblies). Der ``ImportError``-Fallback ist eine reine Absicherung für
+    den Fall, dass eine konkrete Installation eine der beiden Klassen nicht
+    bereitstellt.
     """
     from Siemens.Engineering.HW.Features import SoftwareContainer
     from Siemens.Engineering.Hmi import HmiTarget
-    from Siemens.Engineering.HmiUnified import HmiSoftware
+
+    hmi_types: tuple[type, ...] = (HmiTarget,)
+    try:
+        from Siemens.Engineering.HmiUnified import HmiSoftware
+
+        hmi_types = (HmiTarget, HmiSoftware)
+    except ImportError:
+        logger.debug("WinCC-Unified-Klasse nicht verfügbar — nur Advanced/Comfort wird erfasst.")
 
     result: list[Any] = []
     for device in project.Devices:
         for device_item in device.DeviceItems:
             container = device_item.GetService[SoftwareContainer]()
-            if container is not None and isinstance(container.Software, (HmiTarget, HmiSoftware)):
+            if container is not None and isinstance(container.Software, hmi_types):
                 result.append(container.Software)
     return result
 
@@ -96,6 +117,9 @@ def run_export(
 
     Wird von der GUI in einem separaten Thread aufgerufen; ``progress`` erhält
     Statusmeldungen für die Anzeige in der Statuszeile.
+
+    Verbindet neu und macht bei den noch fehlenden PLCs/DBs/HMI-Targets weiter,
+    falls die Openness-Session unerwartet stirbt (siehe ``_MAX_RECONNECT_ATTEMPTS``).
     """
 
     def report(message: str) -> None:
@@ -108,28 +132,66 @@ def run_export(
 
     extractor = TagExtractor()
     data: dict[str, list[dict[str, Any]]] = {"plc_tags": [], "hmi_tags": [], "db_variables": []}
+    done_plc_tags: set[str] = set()
+    done_dbs: set[tuple[str, str]] = set()
+    done_hmi: set[str] = set()
+    disposed_exc_types: tuple[type, ...] = ()
 
-    report("Verbinde mit TIA Portal ...")
-    with TiaConnector(dll_path) as connector:
-        project = connector.connect(project_path)
-        report(f"Projekt geöffnet: {project.Name}")
+    for attempt in range(1, _MAX_RECONNECT_ATTEMPTS + 1):
+        try:
+            report(
+                "Verbinde mit TIA Portal ..."
+                if attempt == 1
+                else f"TIA-Portal-Session unerwartet beendet — verbinde neu "
+                f"(Versuch {attempt}/{_MAX_RECONNECT_ATTEMPTS}) ..."
+            )
+            with TiaConnector(dll_path) as connector:
+                project = connector.connect(project_path)
+                report(f"Projekt geöffnet: {project.Name}")
 
-        if include_plc or include_db:
-            plc_software_list = _find_plc_software_list(project)
-            report(f"{len(plc_software_list)} PLC-Software-Container gefunden")
+                if not disposed_exc_types:
+                    try:
+                        from Siemens.Engineering import EngineeringObjectDisposedException
 
-            for plc in plc_software_list:
-                if include_plc:
-                    data["plc_tags"].extend(extractor.extract_plc_tags(plc))
-                if include_db:
-                    for db in _find_data_blocks(plc):
-                        data["db_variables"].extend(extractor.extract_db_variables(db))
+                        disposed_exc_types = (EngineeringObjectDisposedException,)
+                    except ImportError:
+                        disposed_exc_types = (Exception,)
 
-        if include_hmi:
-            hmi_targets = _find_hmi_targets(project)
-            report(f"{len(hmi_targets)} HMI-Targets gefunden")
-            for hmi in hmi_targets:
-                data["hmi_tags"].extend(extractor.extract_hmi_tags(hmi))
+                if include_plc or include_db:
+                    plc_software_list = _find_plc_software_list(project)
+                    report(f"{len(plc_software_list)} PLC-Software-Container gefunden")
+
+                    for plc in plc_software_list:
+                        plc_name = getattr(plc, "Name", "?")
+                        if include_plc and plc_name not in done_plc_tags:
+                            data["plc_tags"].extend(extractor.extract_plc_tags(plc))
+                            done_plc_tags.add(plc_name)
+                        if include_db:
+                            for db in _find_data_blocks(plc):
+                                db_key = (plc_name, getattr(db, "Name", "?"))
+                                if db_key in done_dbs:
+                                    continue
+                                data["db_variables"].extend(extractor.extract_db_variables(db))
+                                done_dbs.add(db_key)
+
+                if include_hmi:
+                    hmi_targets = _find_hmi_targets(project)
+                    report(f"{len(hmi_targets)} HMI-Targets gefunden")
+                    for hmi in hmi_targets:
+                        hmi_name = getattr(hmi, "Name", "?")
+                        if hmi_name in done_hmi:
+                            continue
+                        data["hmi_tags"].extend(extractor.extract_hmi_tags(hmi))
+                        done_hmi.add(hmi_name)
+
+            break
+        except disposed_exc_types as exc:
+            if attempt == _MAX_RECONNECT_ATTEMPTS:
+                raise TiaConnectionError(
+                    f"TIA-Portal-Verbindung nach {_MAX_RECONNECT_ATTEMPTS} Versuchen "
+                    f"weiterhin instabil: {exc}"
+                ) from exc
+            logger.warning("TIA-Portal-Session unerwartet beendet (Versuch %d): %s", attempt, exc)
 
     report("Schreibe Excel-Datei ...")
     ExcelExporter().export(data, output_path)
