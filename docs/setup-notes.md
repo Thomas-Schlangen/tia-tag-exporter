@@ -1,11 +1,10 @@
-# Setup-Notizen — TIA Openness DLL (V21)
+# Setup-Notizen — TIA Openness DLL (V19–V21)
 
 ## Korrektur (Stand: 2026-07-09)
 
 Die erste Suche nach `Siemens.Engineering.dll` in `C:\Program Files\Siemens\`
-lieferte nur Treffer für **TIA Portal V19** und keinen Treffer für V21 — das
-war jedoch ein Suchfehler, kein fehlendes Feature: **TIA Portal V21 ist auf
-diesem System ebenfalls installiert**, unter
+lieferte nur Treffer für **TIA Portal V19** und keinen Treffer für V21 — **TIA
+Portal V21 ist auf diesem System ebenfalls installiert**, unter
 `C:\Program Files\Siemens\Automation\Portal V21\`. Es existiert dort nur keine
 Datei namens `Siemens.Engineering.dll`.
 
@@ -29,9 +28,37 @@ C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\
 Verifiziert per .NET-Reflection (`Assembly.LoadFrom` + `GetTypes()`) direkt
 gegen die installierten DLLs — nicht nur aus der Dokumentation übernommen.
 
-`config.toml` / `config.example.toml` verweisen daher auf
+`config.yaml` / `config.example.yaml` verweisen für V21 daher auf
 `Siemens.Engineering.Base.dll`; `TiaConnector._load_dll()` lädt automatisch
-zusätzlich `Step7`, `WinCC` und `WinCCUnified` aus demselben Verzeichnis.
+zusätzlich `Step7`, `WinCC` und `WinCCUnified` aus demselben Verzeichnis. (Die
+Config lief bis 2026-07-09 noch über `config.toml`/`config.example.toml` —
+inzwischen auf YAML umgestellt, siehe `src/config_loader`.)
+
+## V19/V20: monolithisches Layout statt Split-Assemblies (Stand: 2026-07-10)
+
+Vor V21 ist die Openness API eine einzige `Siemens.Engineering.dll` direkt
+unter `PublicAPI\V19\` (kein `net48`-Unterordner, kein Base/Step7/WinCC-Split).
+Zwei Stolpersteine, die live gegen eine echte V19-Installation gefunden
+wurden:
+
+- `Siemens.Engineering.dll` hängt von `Siemens.Engineering.Contract.dll` ab,
+  die aber **nicht** neben ihr in `PublicAPI\V19\` liegt, sondern unter
+  `<Installationswurzel>\Bin\PublicAPI\` (z. B.
+  `C:\Program Files\Siemens\Automation\Portal V19\Bin\PublicAPI\`). Ohne
+  diesen Pfad im .NET-Assembly-Suchpfad schlägt das Laden von Typen aus
+  `Siemens.Engineering` mit einer `FileNotFoundException` auf die
+  Contract-Assembly fehl. `TiaConnector._load_dll()` ergänzt diesen Pfad
+  automatisch (siehe Kommentar dort).
+- Anders als zunächst vermutet enthält die monolithische
+  `Siemens.Engineering.dll` **sowohl** `Siemens.Engineering.Hmi.HmiTarget`
+  (Advanced/Comfort) **als auch** `Siemens.Engineering.HmiUnified.HmiSoftware`
+  (Unified) — Letzteres ist also keine reine V21-Neuerung.
+
+`TiaConnector` erkennt anhand des Dateinamens von `dll_path`
+(`Siemens.Engineering.Base.dll` vs. alles andere), welches Layout vorliegt.
+Details und die bekannte V19-Headless-Instabilität bei der
+DB-Variablen-Extraktion (nicht durch dieses Tool behebbar) siehe README,
+Abschnitt "Bekannte Einschränkungen".
 
 ## Wichtige Erkenntnisse für die Implementierung (per Reflection verifiziert)
 
