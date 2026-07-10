@@ -159,11 +159,13 @@ def run_export(
                         disposed_exc_types = (Exception,)
 
                 project_texts = None
-                if include_db:
+                if include_db or include_hmi:
                     # DB-Interface-Member haben kein Comment-Attribut (live verifiziert,
                     # siehe docs/setup-notes.md) — die Kommentare kommen stattdessen aus
-                    # der zentralen Projekttexte-Verwaltung.
-                    report("Lese Projekttexte für DB-Variablen-Kommentare ...")
+                    # der zentralen Projekttexte-Verwaltung. Wird auch für HMI-Tags
+                    # gebraucht: deren Kommentar-Fallback ist der Kommentar der
+                    # verknüpften PLC-Variable (siehe extract_hmi_tags).
+                    report("Lese Projekttexte für Kommentare ...")
                     project_texts = ProjectTextComments.load(project)
 
                 if include_plc or include_db:
@@ -190,7 +192,7 @@ def run_export(
                         hmi_name = getattr(hmi, "Name", "?")
                         if hmi_name in done_hmi:
                             continue
-                        data["hmi_tags"].extend(extractor.extract_hmi_tags(hmi))
+                        data["hmi_tags"].extend(extractor.extract_hmi_tags(hmi, project_texts))
                         done_hmi.add(hmi_name)
 
             break

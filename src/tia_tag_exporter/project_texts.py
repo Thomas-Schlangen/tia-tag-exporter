@@ -42,6 +42,7 @@ class ProjectTextComments:
 
     def __init__(self) -> None:
         self._comments: dict[tuple[str, str, str], str] = {}
+        self._comments_by_db_member: dict[tuple[str, str], str] = {}
 
     @classmethod
     def load(cls, project: Any) -> "ProjectTextComments":
@@ -102,6 +103,7 @@ class ProjectTextComments:
                     db_name = segments[-2]
                     member_path = segments[-1]
                     self._comments[(plc_name, db_name, member_path)] = text
+                    self._comments_by_db_member[(db_name, member_path)] = text
             finally:
                 workbook.close()
 
@@ -112,3 +114,15 @@ class ProjectTextComments:
         (Punktnotation bei verschachtelten Membern), oder ``None`` falls keiner
         hinterlegt ist."""
         return self._comments.get((plc_name, db_name, member_path))
+
+    def get_by_db_member(self, db_name: str, member_path: str) -> str | None:
+        """Wie ``get()``, aber ohne PLC-Namen im Schlüssel.
+
+        Für HMI-Tags: Die verknüpfte PLC-Variable (siehe
+        ``TagExtractor._read_controller_tags``) ist nur als ``DB.Member``-Pfad
+        bekannt, ohne Angabe, zu welcher PLC dieser DB gehört. Bei mehreren
+        PLCs mit einem DB gleichen Namens **und** gleichem Membernamen könnte
+        das theoretisch den falschen Kommentar liefern — in der Praxis
+        (typischerweise ein PLC pro HMI-Verbindung) ist das vernachlässigbar.
+        """
+        return self._comments_by_db_member.get((db_name, member_path))

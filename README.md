@@ -151,11 +151,10 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
   (nicht über eine direkte Objekt-Referenz, sondern per Pfad-String aus dem
   Export — der PLC-Name macht den Schlüssel projektweit eindeutig, siehe
   Docstring der Klasse).
-- **HMI-Tags bei WinCC Advanced/Comfort: nur `Name` ist über Openness
-  abrufbar.** `Datentyp`, `Verbindung` und `Kommentar` bleiben für diesen
-  HMI-Typ grundsätzlich leer — die Openness API stellt diese Werte für
-  klassische Comfort-/Advanced-Tags schlicht nicht bereit (weder als Property
-  noch über `GetAttribute`).
+- **HMI-Tags bei WinCC Advanced/Comfort: `Datentyp` und `Verbindung` bleiben
+  leer.** Die Openness API stellt diese Werte für klassische
+  Comfort-/Advanced-Tags schlicht nicht bereit (weder als Property noch über
+  `GetAttribute`) — nur `Name` ist direkt abrufbar.
 - **HMI-Tags: `PLC-Variable` kommt nicht aus dem Tag-Objekt selbst.** Analog
   zu den DB-Variablen-Kommentaren gibt es auch für die Verknüpfung zur
   gebundenen PLC-Variable keine Property oder kein Attribut auf
@@ -164,6 +163,16 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
   läuft einmal pro Tag-Tabelle (nicht pro Tag) und wird intern geparst.
   Rein interne, nicht mit der PLC verknüpfte HMI-Tags bleiben dabei
   korrekterweise leer (kein `ControllerTag`-Element im Export).
+- **HMI-Tags: `Kommentar` fällt auf den Kommentar der verknüpften
+  PLC-Variable zurück, wenn das Tag selbst keinen hat.** Bei WinCC
+  Advanced/Comfort ist der eigene Tag-Kommentar über Openness nicht
+  abrufbar — der Export sucht dann über `PLC-Variable` (DB-Name +
+  Membername) in denselben Projekttexten nach, die auch für die
+  DB-Variablen-Kommentare genutzt werden. Ohne PLC-Namen im Schlüssel (an
+  dieser Stelle nicht bekannt, zu welcher PLC die Ziel-DB gehört) — bei
+  mehreren PLCs mit gleichnamigem DB und Member theoretisch mehrdeutig,
+  in der Praxis vernachlässigbar. Live verifiziert: 65 von 177 HMI-Tags
+  in einem realen Projekt erhalten so einen echten Kommentar.
 - **WinCC Unified** ist bisher nur anhand der .NET-Typsignaturen verifiziert
   (per Reflection: `HmiUnified.HmiTags.HmiTag` hat echte `DataType`-,
   `Connection`- und `Comment`-Properties), aber noch nicht live gegen ein

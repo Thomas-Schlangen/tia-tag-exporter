@@ -84,7 +84,9 @@ class TagExtractor:
         logger.info("%d PLC-Tags extrahiert", len(records))
         return records
 
-    def extract_hmi_tags(self, hmi: Any) -> list[HmiTagRecord]:
+    def extract_hmi_tags(
+        self, hmi: Any, project_texts: "ProjectTextComments | None" = None
+    ) -> list[HmiTagRecord]:
         """Extrahiert alle HMI-Tags aus allen Tag-Tabellen eines HMI-Geräts.
 
         WinCC Advanced/Comfort (``Siemens.Engineering.Hmi.HmiTarget``) und WinCC
@@ -103,9 +105,15 @@ class TagExtractor:
         Args:
             hmi: Ein HMI-Software-Objekt (Advanced/Comfort ``HmiTarget`` oder
                 Unified ``HmiSoftware``).
+            project_texts: Nachschlage-Tabelle für Kommentare (siehe
+                ``project_texts.ProjectTextComments``) — dient hier als
+                Fallback: Bei WinCC Advanced/Comfort ist der eigene
+                Tag-Kommentar über Openness nicht abrufbar, aber die
+                verknüpfte PLC-Variable (``PLC-Variable``-Spalte) hat oft
+                denselben Kommentar hinterlegt wie die HMI-Variable selbst.
 
         Returns:
-            Liste von Dicts mit Name, Datentyp, Verbindung, Kommentar.
+            Liste von Dicts mit Name, Datentyp, Verbindung, PLC-Variable, Kommentar.
         """
         records: list[HmiTagRecord] = []
         tag_tables = list(self._iter_hmi_tag_tables(hmi))
@@ -125,14 +133,17 @@ class TagExtractor:
                     # Kommentar bleiben dort leer. Live verifiziert (siehe
                     # docs/setup-notes.md), kein Bug. Bei WinCC Unified sind es
                     # echte Properties und werden korrekt gefüllt.
+                    controller_tag = controller_tags.get(tag.Name)
+                    own_comment = self._read_comment(self._get_value(tag, "Comment"))
+                    plc_comment = self._read_linked_plc_comment(controller_tag, project_texts)
                     records.append(
                         {
                             "Variablentabelle": table_name,
                             "Name": tag.Name,
                             "Datentyp": self._read_hmi_data_type(tag),
                             "Verbindung": self._read_hmi_connection(tag),
-                            "PLC-Variable": controller_tags.get(tag.Name, ""),
-                            "Kommentar": self._read_comment(self._get_value(tag, "Comment")),
+                            "PLC-Variable": controller_tag or "",
+                            "Kommentar": own_comment or plc_comment or "",
                         }
                     )
                 except Exception as exc:  # noqa: BLE001
@@ -144,6 +155,27 @@ class TagExtractor:
 
         logger.info("%d HMI-Tags extrahiert", len(records))
         return records
+
+    @classmethod
+    def _read_linked_plc_comment(
+        cls, controller_tag: str | None, project_texts: "ProjectTextComments | None"
+    ) -> str | None:
+        """Liest den Kommentar der PLC-Variable, mit der ein HMI-Tag verknüpft
+        ist (``controller_tag`` im Format ``DB.Member[.Sub...]``, siehe
+        ``_read_controller_tags``), über dieselbe Projekttexte-Nachschlage-
+        Tabelle wie die DB-Variablen-Kommentare. Ohne PLC-Namen im Schlüssel
+        (siehe ``ProjectTextComments.get_by_db_member``), da für ein HMI-Tag
+        an dieser Stelle nicht bekannt ist, zu welcher PLC die Ziel-DB gehört.
+        """
+        if not controller_tag or project_texts is None:
+            return None
+        parts = controller_tag.split(".", 1)
+        if len(parts) != 2:
+            return None
+        db_name, member_path = parts
+        return project_texts.get_by_db_member(
+            cls._normalize_member_path(db_name), cls._normalize_member_path(member_path)
+        )
 
     @staticmethod
     def _read_controller_tags(table: Any) -> dict[str, str]:
