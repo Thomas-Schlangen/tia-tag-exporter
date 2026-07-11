@@ -214,3 +214,6 @@ DB-Variablen, 1085 HMI-Tags erfolgreich exportiert). Dabei bestätigt:
 
 Details und die konkreten `GetAttributeInfos()`-Ergebnisse siehe
 `docs/setup-notes.md`.
+
+## License
+This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
