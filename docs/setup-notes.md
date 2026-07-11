@@ -179,14 +179,38 @@ zum bereits dokumentierten nicht-deterministischen Charakter des Problems
 (`_MAX_RECONNECT_ATTEMPTS` in `main.py`) wäre bei Bedarf gegriffen, war hier
 aber nicht erforderlich.
 
+## Live-Test gegen reales WinCC-Unified-Projekt (Stand: 2026-07-11)
+
+Getestet gegen `xxxxx` (Kunde, TIA V21, 4 WinCC-Unified-HMI-Targets).
+Ergebnis: **502 PLC-Tags**, **73.704 DB-Variablen**, **316 HMI-Tags** korrekt
+exportiert, Laufzeit ~3,5 Minuten, kein Reconnect nötig. Damit ist die bisher
+nur per Reflection verifizierte Unified-Unterstützung jetzt auch live
+bestätigt: `Datentyp`/`Verbindung` werden wie erwartet direkt aus echten
+Properties gelesen, `PLC-Variable` (ControllerTag) wird für verlinkte Tags
+korrekt aufgelöst.
+
+Zwei Beobachtungen, keine davon ein Bug im Tool:
+
+- Für System-Tag-Tabellen (`Standard-Variablentabelle`, `ColorTags`,
+  `SessionLocal`, `TEST`) schlägt der `HmiTagTable.Export()`-Aufruf in
+  `_read_hmi_tag_links()` fehl (`'HmiTagTable' object has no attribute
+  'Export'`). Der bestehende `except`-Fallback fängt das wie dokumentiert ab —
+  nur `PLC-Variable`/`Datentyp`/`Verbindung` bleiben für diese Tabellen leer,
+  kein Absturz.
+- Ein Teil der Kommentare/Quellkommentare enthält kaputte Zeichen (`�` statt
+  `ü`/`ö`, z. B. `"Hilfsvariable Skript�berlast"`). Kommt unverändert aus
+  `Project.ExportProjectTexts()` (siehe `project_texts.py`) — TIA Portal
+  liefert die Zeichen bereits so im Export, das Tool liest nur mit `openpyxl`
+  weiter, ohne eigene Encoding-Logik dazwischen. Sieht nach einer bereits im
+  Testprojekt vorhandenen Zeichensatz-Inkonsistenz aus, nicht nach einem Fehler
+  in `project_texts.py` oder `extractor.py`.
+
 ## Offene Punkte
 
-- [ ] WinCC **Unified** (`HmiSoftware`/`HmiUnified.HmiTags.HmiTag`) ist bisher
-      nur per Reflection (Typsignaturen: echte Properties `DataType`,
-      `Connection`, `Comment` vorhanden) verifiziert, aber noch nicht live
-      gegen ein Projekt mit tatsächlichem WinCC-Unified-Gerät getestet.
-      Ein lokaler Testprojekt-Kandidat mit WinCC-Unified-Gerät ist vorhanden
-      (siehe lokale Notizen, Pfad hier bewusst nicht dokumentiert).
+- [x] WinCC **Unified** (`HmiSoftware`/`HmiUnified.HmiTags.HmiTag`) — live
+      gegen ein reales Projekt mit vier tatsächlichen WinCC-Unified-Geräten
+      getestet (siehe Abschnitt oben), nicht mehr nur per Reflection
+      verifiziert.
 - [ ] `pythonnet` benötigt eine passende .NET-Runtime (i. d. R. .NET Framework
       4.8 — alle V21-Assemblies sind `net48`-Builds); auf Kompatibilität mit
       der installierten Python-Version prüfen.

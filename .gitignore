@@ -22,6 +22,7 @@ config.toml
 export.log
 *.xlsx
 !config.example.yaml
+docs/report.md
 
 # output-Ordner selbst wird versioniert, sein Inhalt nicht
 output/*
