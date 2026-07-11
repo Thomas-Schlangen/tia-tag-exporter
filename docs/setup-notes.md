@@ -211,9 +211,12 @@ Zwei Beobachtungen, keine davon ein Bug im Tool:
       gegen ein reales Projekt mit vier tatsächlichen WinCC-Unified-Geräten
       getestet (siehe Abschnitt oben), nicht mehr nur per Reflection
       verifiziert.
-- [ ] `pythonnet` benötigt eine passende .NET-Runtime (i. d. R. .NET Framework
+- [x] `pythonnet` benötigt eine passende .NET-Runtime (i. d. R. .NET Framework
       4.8 — alle V21-Assemblies sind `net48`-Builds); auf Kompatibilität mit
-      der installierten Python-Version prüfen.
+      der installierten Python-Version prüfen. In der Praxis durch die beiden
+      Live-Tests oben bereits bestätigt: Python 3.12 + `pythonnet` 3.x liefen
+      sowohl gegen das monolithische V19-Layout als auch gegen die V21
+      `net48`-Split-Assemblies fehlerfrei durch (Stand: 2026-07-11).
 - [ ] Prüfen, ob `Safety`-Datenbausteine (safety-relevante DBs) zusätzliche
       Behandlung benötigen — im Testprojekt wurden Safety-DBs (`DataToSafety`,
       `DataFromSafety` etc.) ohne Sonderbehandlung korrekt mit ausgelesen.
