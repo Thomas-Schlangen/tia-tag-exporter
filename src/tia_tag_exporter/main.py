@@ -13,7 +13,7 @@ from my_logger import setup_logger
 from tia_tag_exporter.config_schema import AppConfig
 from tia_tag_exporter.connector import TiaConnectionError, TiaConnector
 from tia_tag_exporter.exporter import ExcelExporter
-from tia_tag_exporter.extractor import TagExtractor
+from tia_tag_exporter.extractor import DbVariableRecord, HmiTagRecord, PlcTagRecord, TagExtractor
 from tia_tag_exporter.project_texts import ProjectTextComments
 
 logger = logging.getLogger(__name__)
@@ -38,22 +38,35 @@ def _configure_console_encoding() -> None:
             stream.reconfigure(encoding="utf-8")
 
 
-def _find_plc_software_list(project: Any) -> list[Any]:
-    """Traversiert alle Geräte des Projekts und sammelt PLC-Software-Container."""
+def _find_software_containers(project: Any, types: tuple[type, ...]) -> list[Any]:
+    """Traversiert alle Geräte des Projekts und sammelt die Software-Objekte
+    aller Software-Container, deren ``Software`` einer der ``types``
+    entspricht.
+
+    Gemeinsame Traversierung für ``_find_plc_software_list`` und
+    ``_find_hmi_targets`` — beide liefen zuvor dieselbe
+    Devices/DeviceItems/GetService-Schleife fast unverändert.
+    """
     from Siemens.Engineering.HW.Features import SoftwareContainer
-    from Siemens.Engineering.SW import PlcSoftware
 
     result: list[Any] = []
     for device in project.Devices:
         for device_item in device.DeviceItems:
             container = device_item.GetService[SoftwareContainer]()
-            if container is not None and isinstance(container.Software, PlcSoftware):
+            if container is not None and isinstance(container.Software, types):
                 result.append(container.Software)
     return result
 
 
+def _find_plc_software_list(project: Any) -> list[Any]:
+    """Sammelt alle PLC-Software-Container des Projekts."""
+    from Siemens.Engineering.SW import PlcSoftware
+
+    return _find_software_containers(project, (PlcSoftware,))
+
+
 def _find_hmi_targets(project: Any) -> list[Any]:
-    """Traversiert alle Geräte des Projekts und sammelt HMI-Software-Container.
+    """Sammelt alle HMI-Software-Container des Projekts.
 
     WinCC Advanced/Comfort und WinCC Unified verwenden unterschiedliche
     Software-Klassen (``Siemens.Engineering.Hmi.HmiTarget`` bzw.
@@ -64,7 +77,6 @@ def _find_hmi_targets(project: Any) -> list[Any]:
     den Fall, dass eine konkrete Installation eine der beiden Klassen nicht
     bereitstellt.
     """
-    from Siemens.Engineering.HW.Features import SoftwareContainer
     from Siemens.Engineering.Hmi import HmiTarget
 
     hmi_types: tuple[type, ...] = (HmiTarget,)
@@ -75,13 +87,7 @@ def _find_hmi_targets(project: Any) -> list[Any]:
     except ImportError:
         logger.debug("WinCC-Unified-Klasse nicht verfügbar — nur Advanced/Comfort wird erfasst.")
 
-    result: list[Any] = []
-    for device in project.Devices:
-        for device_item in device.DeviceItems:
-            container = device_item.GetService[SoftwareContainer]()
-            if container is not None and isinstance(container.Software, hmi_types):
-                result.append(container.Software)
-    return result
+    return _find_software_containers(project, hmi_types)
 
 
 def _find_data_blocks(plc_software: Any) -> list[Any]:
@@ -103,6 +109,79 @@ def _find_data_blocks(plc_software: Any) -> list[Any]:
 
     _walk(plc_software.BlockGroup)
     return result
+
+
+def _extract_plc_tags(
+    extractor: TagExtractor,
+    plc_list: list[Any],
+    done_plc_tags: set[str],
+) -> list[PlcTagRecord]:
+    """Extrahiert PLC-Tags aus allen noch nicht verarbeiteten PLCs in
+    ``plc_list``.
+
+    ``done_plc_tags`` wird in-place um die Namen der hier verarbeiteten PLCs
+    ergänzt (statt eines Rückgabewerts), damit ein Reconnect in
+    ``run_export`` bereits erledigte PLCs bei einem erneuten Aufruf
+    überspringt, ohne sie doppelt zu exportieren.
+    """
+    records: list[PlcTagRecord] = []
+    for plc in plc_list:
+        plc_name = getattr(plc, "Name", "?")
+        if plc_name in done_plc_tags:
+            continue
+        records.extend(extractor.extract_plc_tags(plc))
+        done_plc_tags.add(plc_name)
+    return records
+
+
+def _extract_db_variables(
+    extractor: TagExtractor,
+    plc_list: list[Any],
+    project_texts: ProjectTextComments | None,
+    done_dbs: set[tuple[str, str]],
+) -> list[DbVariableRecord]:
+    """Extrahiert DB-Variablen aus allen noch nicht verarbeiteten
+    Datenbausteinen über alle PLCs in ``plc_list``.
+
+    ``done_dbs`` (Schlüssel ``(PLC-Name, DB-Name)``) wird in-place um die
+    hier verarbeiteten DBs ergänzt, damit ein Reconnect in ``run_export``
+    bereits erledigte DBs bei einem erneuten Aufruf überspringt, ohne sie
+    doppelt zu exportieren.
+    """
+    records: list[DbVariableRecord] = []
+    for plc in plc_list:
+        plc_name = getattr(plc, "Name", "?")
+        for db in _find_data_blocks(plc):
+            db_key = (plc_name, getattr(db, "Name", "?"))
+            if db_key in done_dbs:
+                continue
+            records.extend(extractor.extract_db_variables(db, plc, project_texts))
+            done_dbs.add(db_key)
+    return records
+
+
+def _extract_hmi_tags(
+    extractor: TagExtractor,
+    hmi_targets: list[Any],
+    project_texts: ProjectTextComments | None,
+    done_hmi: set[str],
+) -> list[HmiTagRecord]:
+    """Extrahiert HMI-Tags aus allen noch nicht verarbeiteten HMI-Targets in
+    ``hmi_targets``.
+
+    ``done_hmi`` wird in-place um die Namen der hier verarbeiteten
+    HMI-Targets ergänzt, damit ein Reconnect in ``run_export`` bereits
+    erledigte HMI-Targets bei einem erneuten Aufruf überspringt, ohne sie
+    doppelt zu exportieren.
+    """
+    records: list[HmiTagRecord] = []
+    for hmi in hmi_targets:
+        hmi_name = getattr(hmi, "Name", "?")
+        if hmi_name in done_hmi:
+            continue
+        records.extend(extractor.extract_hmi_tags(hmi, project_texts))
+        done_hmi.add(hmi_name)
+    return records
 
 
 def run_export(
@@ -140,12 +219,15 @@ def run_export(
 
     for attempt in range(1, _MAX_RECONNECT_ATTEMPTS + 1):
         try:
-            report(
-                "Verbinde mit TIA Portal ..."
-                if attempt == 1
-                else f"TIA-Portal-Session unerwartet beendet — verbinde neu "
-                f"(Versuch {attempt}/{_MAX_RECONNECT_ATTEMPTS}) ..."
-            )
+            if attempt == 1:
+                connect_message = "Verbinde mit TIA Portal ..."
+            else:
+                connect_message = (
+                    f"TIA-Portal-Session unerwartet beendet — verbinde neu "
+                    f"(Versuch {attempt}/{_MAX_RECONNECT_ATTEMPTS}) ..."
+                )
+            report(connect_message)
+
             with TiaConnector(dll_path) as connector:
                 project = connector.connect(project_path)
                 report(f"Projekt geöffnet: {project.Name}")
@@ -172,28 +254,21 @@ def run_export(
                     plc_software_list = _find_plc_software_list(project)
                     report(f"{len(plc_software_list)} PLC-Software-Container gefunden")
 
-                    for plc in plc_software_list:
-                        plc_name = getattr(plc, "Name", "?")
-                        if include_plc and plc_name not in done_plc_tags:
-                            data["plc_tags"].extend(extractor.extract_plc_tags(plc))
-                            done_plc_tags.add(plc_name)
-                        if include_db:
-                            for db in _find_data_blocks(plc):
-                                db_key = (plc_name, getattr(db, "Name", "?"))
-                                if db_key in done_dbs:
-                                    continue
-                                data["db_variables"].extend(extractor.extract_db_variables(db, plc, project_texts))
-                                done_dbs.add(db_key)
+                    if include_plc:
+                        data["plc_tags"].extend(
+                            _extract_plc_tags(extractor, plc_software_list, done_plc_tags)
+                        )
+                    if include_db:
+                        data["db_variables"].extend(
+                            _extract_db_variables(extractor, plc_software_list, project_texts, done_dbs)
+                        )
 
                 if include_hmi:
                     hmi_targets = _find_hmi_targets(project)
                     report(f"{len(hmi_targets)} HMI-Targets gefunden")
-                    for hmi in hmi_targets:
-                        hmi_name = getattr(hmi, "Name", "?")
-                        if hmi_name in done_hmi:
-                            continue
-                        data["hmi_tags"].extend(extractor.extract_hmi_tags(hmi, project_texts))
-                        done_hmi.add(hmi_name)
+                    data["hmi_tags"].extend(
+                        _extract_hmi_tags(extractor, hmi_targets, project_texts, done_hmi)
+                    )
 
             break
         except disposed_exc_types as exc:
