@@ -10,6 +10,42 @@ Exportiert PLC-Tags, HMI-Tags und DB-Variablen aus einem TIA-Portal-Projekt
 - **Python 3.11+**
 - **Windows** (die Openness API ist eine Windows-.NET-Assembly)
 
+## Disclaimer / Haftungsausschluss
+
+**English**
+
+This software is provided "as is", without warranty of any kind, express or implied. The author makes no representations or warranties regarding the accuracy, completeness, or suitability of this software for any particular purpose.
+
+This tool is designed exclusively for reading and exporting data from TIA Portal projects. It does not modify, write to, or interfere with any PLC configuration, program code, or machine control system.
+
+The author assumes no liability for any direct, indirect, incidental, or consequential damages arising from the use or inability to use this software, including but not limited to:
+
+- Data loss or data corruption
+- Unplanned machine downtime or production loss
+- Damage to equipment or infrastructure
+- Personal injury or property damage
+
+Use in safety-relevant systems (functional safety, SIL, Performance Level) is explicitly not recommended without independent verification by a qualified engineer.
+
+By using this software, you agree that you use it entirely at your own risk.
+
+**Deutsch**
+
+Diese Software wird ohne jegliche ausdrückliche oder implizite Gewährleistung bereitgestellt. Der Autor übernimmt keine Garantie für die Korrektheit, Vollständigkeit oder Eignung der Software für einen bestimmten Zweck.
+
+Dieses Tool dient ausschließlich dem Lesen und Exportieren von Daten aus TIA-Portal-Projekten. Es nimmt keine Änderungen an SPS-Konfigurationen, Programmcode oder Maschinensteuerungen vor.
+
+Der Autor übernimmt keine Haftung für direkte, indirekte oder Folgeschäden, die aus der Nutzung oder Nichtnutzbarkeit dieser Software entstehen, einschließlich, aber nicht beschränkt auf:
+
+- Datenverlust oder Datenbeschädigung
+- Ungeplante Maschinenstillstände oder Produktionsausfälle
+- Schäden an Anlagen oder Infrastruktur
+- Personen- oder Sachschäden
+
+Die Verwendung in sicherheitsrelevanten Systemen (funktionale Sicherheit, SIL, Performance Level) wird ohne unabhängige Prüfung durch einen qualifizierten Ingenieur ausdrücklich nicht empfohlen.
+
+Mit der Nutzung dieser Software erklärst du dich damit einverstanden, dass du sie auf eigenes Risiko verwendest.
+
 ## Installation
 
 ```bash
