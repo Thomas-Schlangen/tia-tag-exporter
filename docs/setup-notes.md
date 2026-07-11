@@ -165,6 +165,20 @@ Außerdem zwei **echte, live verifizierte Grenzen der Openness API** gefunden
   Das ist eine bekannte, harte Einschränkung der Openness API für klassische
   HMI-Tags (Comfort/Advanced) — kein Bug in `extractor.py`.
 
+## Live-Test gegen reales V19-Projekt (Stand: 2026-07-11)
+
+Getestet gegen `xxxxx` (Kunde, 283 DBs, 0 HMI-Targets, TIA V19). Ergebnis:
+**1.791 PLC-Tags**, **291.195 DB-Variablen** korrekt exportiert, Laufzeit
+~11 Minuten. Kein einziger Reconnect nötig — die in `README.md` dokumentierte
+V19-Headless-Instabilität (`EngineeringObjectDisposedException` mitten in der
+DB-Extraktion) ist bei diesem Lauf nicht aufgetreten. Damit sind jetzt drei
+unabhängige reale V19-Projekte getestet: zwei mit dem beschriebenen
+Instabilitätsmuster, eines (dieses) komplett sauber durchgelaufen — passt
+zum bereits dokumentierten nicht-deterministischen Charakter des Problems
+(kein Bug im Tool, siehe README). Der automatische Reconnect
+(`_MAX_RECONNECT_ATTEMPTS` in `main.py`) wäre bei Bedarf gegriffen, war hier
+aber nicht erforderlich.
+
 ## Offene Punkte
 
 - [ ] WinCC **Unified** (`HmiSoftware`/`HmiUnified.HmiTags.HmiTag`) ist bisher

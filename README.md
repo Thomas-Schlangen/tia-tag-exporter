@@ -143,7 +143,10 @@ Leerzeile zwischen den Tabellen-Blöcken.
 Alle Läufe werden über [`my_logger`](src/my_logger) (stdlib `logging`)
 protokolliert, konfiguriert über `config.yaml` (`[logging]`):
 - Konsole: Level aus `logging.level`
-- Datei `export.log` (im Arbeitsverzeichnis): dasselbe Level
+- Datei (Name aus `logging.file`, z. B. `export.log`): dasselbe Level. Sobald
+  ein Export gestartet wird, schreibt die GUI diese Datei in den in der GUI
+  gewählten Ausgabeordner (nicht ins Arbeitsverzeichnis) — vor dem ersten
+  Export (z. B. beim Start) liegt sie noch dort, wo `config.yaml` es vorgibt.
 
 Fehler beim Lesen einzelner Tags brechen den Export nicht ab — sie werden als
 Warnung geloggt, der Export läuft mit den übrigen Tags weiter.

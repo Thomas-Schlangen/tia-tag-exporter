@@ -10,6 +10,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable
 
+from my_logger import setup_logger
 from tia_tag_exporter.config_schema import AppConfig
 from tia_tag_exporter.connector import TiaConnectionError
 
@@ -118,6 +119,13 @@ class TiaTagExporterApp(tk.Tk):
             return
 
         output_path = Path(self._output_dir.get()) / f"{self._project_path.stem}_tags.xlsx"
+
+        if self._config.logging.file:
+            log_name = Path(self._config.logging.file).name
+            log_config = self._config.logging.model_copy(
+                update={"file": str(Path(self._output_dir.get()) / log_name)}
+            )
+            setup_logger(log_config)
 
         self._start_button.configure(state="disabled")
         self._status.set("Export läuft ...")
