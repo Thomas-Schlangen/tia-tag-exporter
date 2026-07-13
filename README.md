@@ -125,8 +125,8 @@ Eine Excel-Datei mit einem Deckblatt und bis zu drei weiteren Arbeitsblättern:
 
 Im DB-Variablen-Sheet ist Spalte A ("DB-Name") die Gruppierungsspalte; Spalte
 B ("Pfad") enthält den vollständigen Ordnerpfad des Datenbausteins als Text,
-die Ebenen mit " - " verbunden (z. B. `PLC_1 - Programmbausteine - 01 [4805]
-DrySaltingMachine - DDb`); danach bildet je eine weitere Spalte dieselbe
+die Ebenen mit " - " verbunden (z. B. `PLC_1 - Programmbausteine - 01 [xxxx]
+Machine - DDb`); danach bildet je eine weitere Spalte dieselbe
 Ordnerebene einzeln ab (von der PLC-Wurzel bis zum direkten Elternordner —
 der DB selbst ist weder in "Pfad" noch in den Ordnerebene-Spalten enthalten).
 Zeilen desselben DBs sind per Gliederung (`outline_level`) gruppiert und
