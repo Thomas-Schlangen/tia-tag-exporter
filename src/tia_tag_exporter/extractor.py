@@ -190,7 +190,21 @@ class TagExtractor:
                     connection = self._read_hmi_connection(tag) or links.get("Connection") or ""
                     comment = self._read_comment(self._get_value(tag, "Comment"))
                     if not comment and project_texts is not None and hmi_device_name is not None:
-                        comment = project_texts.get_hmi_comment(hmi_device_name, table_name, tag.Name)
+                        # Wie bei _read_quellkommentar/_collect_members: TIA quotet
+                        # Namenssegmente, die keine gueltigen "einfachen" Bezeichner
+                        # sind (z. B. Ziffernbeginn), z. B. ein Geraete-/Tabellen-/
+                        # Tag-Name -- die ViewPath-Segmente aus ExportProjectTexts()
+                        # sind aber immer unquotiert. Ohne Normalisierung wuerde der
+                        # Lookup fuer solche Namen nie treffen (live an einem
+                        # analogen Fall bei DB-Membern im Schwesterprojekt
+                        # tia-linter verifiziert, siehe dessen review_fortschritt.md
+                        # Runde 14 -- hier vorsorglich mit demselben Fix versehen,
+                        # noch nicht an einem HMI-Tag mit betroffenem Namen verifiziert).
+                        comment = project_texts.get_hmi_comment(
+                            self._normalize_member_path(hmi_device_name),
+                            self._normalize_member_path(table_name),
+                            self._normalize_member_path(tag.Name),
+                        )
                     # Quellkommentar: NICHT der Kommentar des HMI-Tags selbst,
                     # sondern der Kommentar der verknüpften PLC-Variable
                     # (Quelle = PLC-Seite) — bewusst eine eigene Spalte, kein
